@@ -1,0 +1,22 @@
+# Entorno
+.env
+credentials/
+*.pyc
+__pycache__/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Imágenes generadas (locales)
+data/images/
+
+# Borradores grandes
+data/draft_*.json
+
+# IDE
+.vscode/
+.idea/
+*.swp

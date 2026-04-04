@@ -1,0 +1,71 @@
+# ============================================================
+# EXPERTOSEO - Configuración Principal
+# ============================================================
+
+# --- Sitios WordPress ---
+sites:
+  - name: "Mi Web Principal"
+    slug: "SITE1"                          # Debe coincidir con WP_APP_PASSWORD_SITE1 en .env
+    url: "https://tusitio.com"
+    wp_user: "admin"
+    default_category: "SEO"
+    default_author_id: 1
+    language: "es"
+    timezone: "Europe/Madrid"
+    gsc_property: "https://tusitio.com"    # Propiedad en Google Search Console
+    competitors:
+      - "https://competidor1.com"
+      - "https://competidor2.com"
+
+  # Añade más sitios aquí:
+  # - name: "Mi Segunda Web"
+  #   slug: "SITE2"
+  #   url: "https://misegundaweb.com"
+  #   wp_user: "admin"
+  #   default_category: "Blog"
+  #   language: "es"
+  #   gsc_property: "https://misegundaweb.com"
+
+# --- Programación automática ---
+schedule:
+  interval_days: 2                         # Publicar cada 2 días
+  publish_time: "09:00"                    # Hora de publicación (formato HH:MM)
+  timezone: "Europe/Madrid"
+  active_site: "SITE1"                     # Sitio activo para publicación automática
+  publish_status: "publish"                # "publish" o "draft"
+
+# --- Keywords ---
+keywords:
+  niche: "marketing digital"               # Nicho principal para tendencias
+  manual:
+    - "estrategia SEO 2025"
+    - "posicionamiento web"
+    - "link building"
+  # Las keywords de GSC y Google Trends se añaden automáticamente
+
+# --- Configuración SEO ---
+seo:
+  min_words: 1500
+  max_words: 2500
+  min_score: 70                            # Score mínimo para publicar (0-100)
+  keyword_density_min: 0.8                 # % mínimo
+  keyword_density_max: 2.0                 # % máximo
+  language: "es"
+  country: "es"                            # Para SERP y tendencias
+
+# --- Generación de imágenes ---
+images:
+  provider: "dalle"                        # "dalle" o "unsplash"
+  dalle_model: "dall-e-3"
+  dalle_quality: "standard"               # "standard" o "hd"
+  dalle_size: "1792x1024"                  # Mejor relación para portadas web
+  optimize_width: 1200
+  optimize_height: 630
+  format: "webp"
+
+# --- Modelos AI ---
+ai:
+  article_model: "claude-sonnet-4-6"
+  assistant_model: "claude-sonnet-4-6"
+  max_tokens_article: 8000
+  max_tokens_assistant: 4000
