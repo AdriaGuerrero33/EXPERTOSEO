@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from rich.console import Console
 
@@ -178,4 +179,65 @@ class ArticleScheduler:
     def _run_job(self) -> None:
         """Job que ejecuta el pipeline completo."""
         console.print(f"\n[bold]Ejecutando pipeline automático — {now_str()}[/bold]")
+        run_full_pipeline(self.config, self.site_slug)
+
+
+class BackgroundArticleScheduler:
+    """
+    Scheduler en background (no bloqueante) para usar dentro de Streamlit u otros frameworks.
+    Inicia el scheduler en un hilo daemon y retorna inmediatamente.
+    """
+
+    def __init__(self, config: dict | None = None):
+        self.config = config or load_config()
+        schedule_cfg = self.config.get("schedule", {})
+        self.interval_days = schedule_cfg.get("interval_days", 2)
+        self.publish_time = schedule_cfg.get("publish_time", "09:00")
+        self.timezone = schedule_cfg.get("timezone", "Europe/Madrid")
+        self.site_slug = schedule_cfg.get("active_site")
+        self.scheduler = BackgroundScheduler(timezone=self.timezone)
+        self._started = False
+
+    def start(self) -> None:
+        """Inicia el scheduler en background. Puede llamarse varias veces (idempotente)."""
+        if self._started or self.scheduler.running:
+            return
+
+        hour, minute = map(int, self.publish_time.split(":"))
+        trigger = IntervalTrigger(
+            days=self.interval_days,
+            start_date=datetime.now().replace(hour=hour, minute=minute, second=0),
+            timezone=self.timezone,
+        )
+        self.scheduler.add_job(
+            func=self._run_job,
+            trigger=trigger,
+            id="publish_article_bg",
+            name=f"Auto-publicar cada {self.interval_days} días",
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True,
+        )
+        self.scheduler.start()
+        self._started = True
+        logger.info(
+            f"Scheduler en background iniciado — cada {self.interval_days} días a las {self.publish_time}"
+        )
+
+    def stop(self) -> None:
+        """Detiene el scheduler en background."""
+        if self.scheduler.running:
+            self.scheduler.shutdown(wait=False)
+            self._started = False
+
+    def get_next_run(self) -> str | None:
+        """Retorna la fecha/hora de la próxima publicación como string."""
+        jobs = self.scheduler.get_jobs()
+        if jobs:
+            next_run = jobs[0].next_run_time
+            return next_run.strftime("%d/%m/%Y %H:%M") if next_run else None
+        return None
+
+    def _run_job(self) -> None:
+        logger.info(f"Scheduler: iniciando pipeline automático — {now_str()}")
         run_full_pipeline(self.config, self.site_slug)
