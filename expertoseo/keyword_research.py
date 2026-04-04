@@ -109,16 +109,20 @@ class KeywordResearch:
         try:
             from google.oauth2 import service_account
             from googleapiclient.discovery import build
-
-            creds_path = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "credentials/google_service_account.json")
-            if not os.path.exists(creds_path):
-                logger.warning(f"Credenciales GSC no encontradas: {creds_path}")
-                return None
+            import json as _json
 
             scopes = ["https://www.googleapis.com/auth/webmasters.readonly"]
-            credentials = service_account.Credentials.from_service_account_file(
-                creds_path, scopes=scopes
-            )
+            json_val = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+
+            if json_val.strip().startswith("{"):
+                info = _json.loads(json_val)
+                credentials = service_account.Credentials.from_service_account_info(info, scopes=scopes)
+            elif json_val and os.path.exists(json_val):
+                credentials = service_account.Credentials.from_service_account_file(json_val, scopes=scopes)
+            else:
+                logger.warning("GOOGLE_SERVICE_ACCOUNT_JSON no configurada")
+                return None
+
             return build("searchconsole", "v1", credentials=credentials, cache_discovery=False)
         except Exception as e:
             logger.warning(f"No se pudo inicializar GSC: {e}")

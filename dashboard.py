@@ -17,12 +17,14 @@ import yaml
 # Asegurar que el directorio del proyecto está en el path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from expertoseo.utils import load_env, load_config, load_json, save_json, DATA_DIR
-
-# ─────────────────────────────────────────────
-# Setup
-# ─────────────────────────────────────────────
-load_env()
+try:
+    from expertoseo.utils import load_env, load_config, load_json, save_json, DATA_DIR
+    load_env()
+    _BOOT_OK = True
+    _BOOT_ERR = None
+except Exception as _e:
+    _BOOT_OK = False
+    _BOOT_ERR = str(_e)
 
 st.set_page_config(
     page_title="EXPERTOSEO",
@@ -79,13 +81,24 @@ def _start_scheduler():
     except Exception as e:
         st.session_state["scheduler_error"] = str(e)
 
-if "scheduler_started" not in st.session_state:
+if _BOOT_OK and "scheduler_started" not in st.session_state:
     _start_scheduler()
 
 
 # ─────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────
+def _safe_load_config():
+    try:
+        return load_config() if _BOOT_OK else {}
+    except Exception:
+        return {}
+
+def _safe_load_json(name, default=None):
+    try:
+        return load_json(name) if _BOOT_OK else (default or [])
+    except Exception:
+        return default or []
 def _score_html(score):
     if score == "-" or score is None:
         return "-"
@@ -129,19 +142,21 @@ with st.sidebar:
     st.markdown("---")
     page = st.radio(
         "Navegación",
-        ["🏠 Inicio", "📝 Artículos", "📊 Rankings", "🚀 Publicar", "🔑 Keywords", "💬 Asistente", "✅ Checklist SEO", "⚙️ Configuración"],
+        ["🏠 Inicio", "📝 Artículos", "📊 Rankings", "🚀 Publicar", "🔑 Keywords", "💬 Asistente", "✅ Checklist SEO", "🔌 Estado APIs", "⚙️ Configuración"],
         label_visibility="collapsed",
     )
     st.markdown("---")
 
-    # Estado del scheduler
-    scheduler = st.session_state.get("bg_scheduler")
-    if scheduler and scheduler.scheduler.running:
-        next_run = scheduler.get_next_run()
-        st.success(f"🟢 Agente activo\n\nPróxima pub: **{next_run or 'pronto'}**")
+    if not _BOOT_OK:
+        st.error(f"⚠️ Error de arranque:\n{_BOOT_ERR}")
     else:
-        err = st.session_state.get("scheduler_error", "")
-        st.warning(f"🟡 Scheduler inactivo\n{err[:80] if err else ''}")
+        scheduler = st.session_state.get("bg_scheduler")
+        if scheduler and scheduler.scheduler.running:
+            next_run = scheduler.get_next_run()
+            st.success(f"🟢 Agente activo\n\nPróxima pub: **{next_run or 'pronto'}**")
+        else:
+            err = st.session_state.get("scheduler_error", "")
+            st.warning(f"🟡 Scheduler inactivo\n{err[:80] if err else ''}")
 
 
 # ─────────────────────────────────────────────
@@ -739,6 +754,142 @@ elif page == "💬 Asistente":
             from expertoseo.assistant import SEOAssistant
             st.session_state["seo_assistant"] = SEOAssistant(config)
             st.rerun()
+
+
+# ─────────────────────────────────────────────
+# PÁGINA: ESTADO DE APIs
+# ─────────────────────────────────────────────
+elif page == "🔌 Estado APIs":
+    st.title("🔌 Estado de Conexiones")
+    st.markdown("Comprueba que todas las APIs están correctamente configuradas antes de publicar.")
+
+    import os
+
+    def _check(label, fn):
+        try:
+            ok, msg = fn()
+            if ok:
+                st.success(f"✅ **{label}** — {msg}")
+            else:
+                st.error(f"❌ **{label}** — {msg}")
+        except Exception as e:
+            st.error(f"❌ **{label}** — Error: {e}")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("APIs de IA")
+
+        # Claude
+        def _test_claude():
+            key = os.getenv("ANTHROPIC_API_KEY", "")
+            if not key:
+                return False, "ANTHROPIC_API_KEY no configurada en Railway Variables"
+            import anthropic
+            client = anthropic.Anthropic(api_key=key)
+            r = client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=10,
+                                        messages=[{"role":"user","content":"hi"}])
+            return True, f"Conectado correctamente (modelo: claude-haiku)"
+        _check("Claude API", _test_claude)
+
+        # OpenAI (opcional)
+        def _test_openai():
+            key = os.getenv("OPENAI_API_KEY", "")
+            if not key:
+                return True, "No configurada (opcional — portadas usarán Unsplash/Picsum)"
+            return True, "API key presente"
+        _check("OpenAI / DALL-E (opcional)", _test_openai)
+
+        st.markdown("")
+        st.subheader("Imágenes")
+
+        # Unsplash
+        def _test_unsplash():
+            key = os.getenv("UNSPLASH_ACCESS_KEY", "")
+            if not key:
+                return True, "No configurada (usará Picsum — imágenes genéricas gratuitas)"
+            resp = __import__("requests").get(
+                "https://api.unsplash.com/photos/random",
+                params={"query": "technology"},
+                headers={"Authorization": f"Client-ID {key}"},
+                timeout=8,
+            )
+            if resp.status_code == 200:
+                return True, "Conectado — imágenes temáticas disponibles"
+            return False, f"Error {resp.status_code} — verifica la clave"
+        _check("Unsplash (imágenes)", _test_unsplash)
+
+    with col2:
+        st.subheader("WordPress")
+
+        # WordPress
+        def _test_wordpress():
+            cfg = _safe_load_config()
+            sites = cfg.get("sites", [])
+            if not sites:
+                return False, "No hay sitios en config.yaml"
+            site = sites[0]
+            url = site.get("url", "")
+            creds = site.get("wp_app_password", "")
+            if not creds:
+                return False, f"WP_APP_PASSWORD_SITE1 no configurada en Railway Variables"
+            if ":" not in creds:
+                user = site.get("wp_user", "")
+                pwd = creds
+            else:
+                user, pwd = creds.split(":", 1)
+            resp = __import__("requests").get(
+                f"{url.rstrip('/')}/wp-json/wp/v2/users/me",
+                auth=(user.strip(), pwd.strip()),
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return True, f"Conectado como '{data.get('name', user)}' en {url}"
+            elif resp.status_code == 401:
+                return False, "Credenciales incorrectas — revisa WP_APP_PASSWORD_SITE1"
+            else:
+                return False, f"Error {resp.status_code} — {url} no responde"
+        _check("WordPress REST API", _test_wordpress)
+
+        # RankMath
+        def _test_rankmath():
+            cfg = _safe_load_config()
+            sites = cfg.get("sites", [])
+            if not sites:
+                return False, "Sin sitios configurados"
+            url = sites[0].get("url", "")
+            resp = __import__("requests").get(
+                f"{url.rstrip('/')}/wp-json/rankmath/v1/getHead",
+                params={"url": url}, timeout=8,
+            )
+            if resp.status_code == 200:
+                return True, "Plugin activo y REST API disponible"
+            return False, "RankMath no responde — ¿está instalado y activado?"
+        _check("RankMath Plugin", _test_rankmath)
+
+        st.markdown("")
+        st.subheader("Google Search Console")
+
+        # GSC
+        def _test_gsc():
+            json_val = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+            if not json_val:
+                return False, "GOOGLE_SERVICE_ACCOUNT_JSON no configurada (ver Checklist → Guía GSC)"
+            # Detectar si es JSON inline o path
+            if json_val.strip().startswith("{"):
+                return True, "Credenciales JSON presentes — se usarán al actualizar rankings"
+            elif os.path.exists(json_val):
+                return True, f"Archivo de credenciales encontrado: {json_val}"
+            else:
+                return False, "El valor parece una ruta de archivo pero no existe. Pega el JSON completo como valor de la variable."
+        _check("Google Search Console API", _test_gsc)
+
+    st.markdown("---")
+    st.info("💡 Pulsa **R** o recarga la página para volver a ejecutar los tests.")
+
+    if st.button("🔄 Re-ejecutar todos los tests"):
+        st.rerun()
 
 
 # ─────────────────────────────────────────────
