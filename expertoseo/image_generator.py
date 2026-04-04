@@ -24,15 +24,15 @@ class ImageGenerator:
     def generate(self, prompt: str, filename: str) -> Path:
         """
         Genera una imagen de portada y la guarda optimizada.
-
-        Args:
-            prompt: Prompt descriptivo para la imagen.
-            filename: Nombre base del archivo de salida (sin extensión).
-
-        Returns:
-            Path al archivo de imagen generado.
+        Siempre intenta Unsplash como fallback si el proveedor principal falla.
         """
         logger.info(f"Generando portada: provider={self.provider}")
+
+        # Si no hay clave de OpenAI configurada, forzar Unsplash
+        import os
+        if self.provider == "dalle" and not os.getenv("OPENAI_API_KEY"):
+            logger.info("OPENAI_API_KEY no configurada, usando Unsplash")
+            self.provider = "unsplash"
 
         if self.provider == "dalle":
             try:
@@ -73,26 +73,29 @@ class ImageGenerator:
         return self._save_and_optimize(img_bytes, filename)
 
     def _generate_unsplash(self, prompt: str, filename: str) -> Path:
-        """Busca y descarga foto de Unsplash."""
-        access_key = require_env("UNSPLASH_ACCESS_KEY")
+        """Busca y descarga foto de Unsplash. Si no hay clave, usa imagen de Picsum."""
+        import os
+        access_key = os.getenv("UNSPLASH_ACCESS_KEY")
 
-        # Usar las primeras palabras del prompt como query
-        query = " ".join(prompt.split()[:5])
-        url = "https://api.unsplash.com/photos/random"
-        params = {
-            "query": query,
-            "orientation": "landscape",
-            "content_filter": "high",
-        }
-        headers = {"Authorization": f"Client-ID {access_key}"}
+        if access_key:
+            query = " ".join(prompt.split()[:5])
+            url = "https://api.unsplash.com/photos/random"
+            params = {"query": query, "orientation": "landscape", "content_filter": "high"}
+            headers = {"Authorization": f"Client-ID {access_key}"}
+            try:
+                resp = requests.get(url, params=params, headers=headers, timeout=15)
+                resp.raise_for_status()
+                data = resp.json()
+                img_url = data["urls"]["regular"]
+                img_bytes = requests.get(img_url, timeout=30).content
+                logger.info(f"Imagen Unsplash: {data.get('alt_description', 'sin descripción')}")
+                return self._save_and_optimize(img_bytes, filename)
+            except Exception as e:
+                logger.warning(f"Unsplash falló ({e}), usando imagen genérica")
 
-        resp = requests.get(url, params=params, headers=headers, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-
-        img_url = data["urls"]["regular"]
-        img_bytes = requests.get(img_url, timeout=30).content
-        logger.info(f"Imagen Unsplash obtenida: {data.get('alt_description', 'sin descripción')}")
+        # Fallback sin ninguna API key: imagen aleatoria de Picsum (libre, sin auth)
+        img_bytes = requests.get("https://picsum.photos/1200/630", timeout=15).content
+        logger.info("Imagen genérica de Picsum (añade UNSPLASH_ACCESS_KEY para imágenes temáticas)")
         return self._save_and_optimize(img_bytes, filename)
 
     def _save_and_optimize(self, img_bytes: bytes, filename: str) -> Path:

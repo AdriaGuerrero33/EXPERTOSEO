@@ -47,10 +47,10 @@ seo:
 
 # --- Generación de imágenes ---
 images:
-  provider: "dalle"                        # "dalle" o "unsplash"
+  provider: "unsplash"                 # "unsplash" (gratis) o "dalle" (requiere OpenAI)
   dalle_model: "dall-e-3"
-  dalle_quality: "standard"               # "standard" o "hd"
-  dalle_size: "1792x1024"                  # Mejor relación para portadas web
+  dalle_quality: "standard"
+  dalle_size: "1792x1024"
   optimize_width: 1200
   optimize_height: 630
   format: "webp"

@@ -204,13 +204,86 @@ if page == "🏠 Inicio":
     else:
         st.info("Aún no hay artículos publicados. Ve a **Publicar** para lanzar el primer artículo.")
 
+    # ── Publicar ahora (inline, sin salir de Inicio) ─────────────────────
     st.markdown("---")
-    col_btn, _ = st.columns([1, 3])
+    st.subheader("⚡ Publicar artículo ahora")
+
+    col_kw, col_draft, col_btn = st.columns([3, 1, 1])
+    with col_kw:
+        quick_kw = st.text_input(
+            "Keyword (opcional — vacío = usar la siguiente de la cola)",
+            key="home_kw",
+            placeholder="ej: mejores auriculares bluetooth 2025",
+            label_visibility="collapsed",
+        )
+    with col_draft:
+        quick_draft = st.toggle("Borrador", key="home_draft", help="Publicar como borrador para revisarlo antes")
     with col_btn:
-        if st.button("🚀 Publicar artículo ahora", type="primary", use_container_width=True):
-            st.switch_page = True
-            st.session_state["auto_launch"] = True
+        launch_now = st.button("🚀 PUBLICAR AHORA", type="primary", use_container_width=True)
+
+    if launch_now:
+        log_q: queue.Queue = queue.Queue()
+        result_box: list = [None]
+
+        class _QuickLogHandler(logging.Handler):
+            def emit(self, record):
+                log_q.put(self.format(record))
+
+        h = _QuickLogHandler()
+        h.setFormatter(logging.Formatter("%(asctime)s — %(message)s", datefmt="%H:%M:%S"))
+        logging.getLogger("expertoseo").addHandler(h)
+
+        def _quick_pipeline():
+            try:
+                cfg = load_config()
+                if quick_draft:
+                    cfg.setdefault("schedule", {})["publish_status"] = "draft"
+                if quick_kw.strip():
+                    q = load_json("keywords.json")
+                    if not isinstance(q, list):
+                        q = []
+                    q.insert(0, quick_kw.strip())
+                    save_json("keywords.json", q)
+                from expertoseo.scheduler import run_full_pipeline
+                result_box[0] = run_full_pipeline(cfg)
+            except Exception as e:
+                result_box[0] = {"status": "error", "error": str(e)}
+
+        t = threading.Thread(target=_quick_pipeline, daemon=True)
+        t.start()
+
+        log_area = st.empty()
+        prog = st.progress(0, text="Iniciando...")
+        logs = []
+        step_map = {"keyword": 15, "generando": 35, "optimiz": 55, "imagen": 70, "publicando": 85, "rankmath": 95}
+
+        while t.is_alive():
+            try:
+                while True:
+                    msg = log_q.get_nowait()
+                    logs.append(msg)
+                    for kw, pct in step_map.items():
+                        if kw in msg.lower():
+                            prog.progress(pct / 100, text=msg[:80])
+                            break
+            except queue.Empty:
+                pass
+            log_area.markdown(f'<div class="log-box">{chr(10).join(logs[-15:])}</div>', unsafe_allow_html=True)
+            time.sleep(0.3)
+
+        t.join()
+        logging.getLogger("expertoseo").removeHandler(h)
+        prog.progress(1.0, text="Completado")
+
+        r = result_box[0]
+        if r and r.get("status") == "success":
+            st.success(f"✅ Publicado correctamente — Score SEO: {r.get('seo_score', '-')}/100")
+            if r.get("link"):
+                st.markdown(f"🔗 **[Ver artículo en resenaspremium.com]({r['link']})**")
             st.rerun()
+        else:
+            err = r.get("error", "Error desconocido") if r else "Sin respuesta"
+            st.error(f"❌ {err}")
 
 
 # ─────────────────────────────────────────────
