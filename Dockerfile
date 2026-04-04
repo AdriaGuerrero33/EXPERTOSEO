@@ -19,12 +19,13 @@ COPY . .
 # Crear directorio de datos (Railway Volume se montará aquí)
 RUN mkdir -p data/images credentials
 
-EXPOSE 8501
+# Railway usa $PORT dinámico — Streamlit debe escuchar en ese puerto
+EXPOSE $PORT
 
-# Railway inyecta $PORT en runtime
 CMD streamlit run dashboard.py \
     --server.port=${PORT:-8501} \
     --server.address=0.0.0.0 \
     --server.headless=true \
     --server.enableCORS=false \
-    --server.enableXsrfProtection=false
+    --server.enableXsrfProtection=false \
+    --server.enableWebsocketCompression=false
