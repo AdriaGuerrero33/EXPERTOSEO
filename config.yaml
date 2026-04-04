@@ -4,27 +4,18 @@
 
 # --- Sitios WordPress ---
 sites:
-  - name: "Mi Web Principal"
-    slug: "SITE1"                          # Debe coincidir con WP_APP_PASSWORD_SITE1 en .env
-    url: "https://tusitio.com"
-    wp_user: "admin"
+  - name: "Reseñas Premium"
+    slug: "SITE1"                          # WP_APP_PASSWORD_SITE1 en Railway Variables
+    url: "https://resenaspremium.com"
+    wp_user: "FernandoSEO"
     default_category: "SEO"
     default_author_id: 1
     language: "es"
     timezone: "Europe/Madrid"
-    gsc_property: "https://tusitio.com"    # Propiedad en Google Search Console
+    gsc_property: "https://resenaspremium.com"    # Propiedad en Google Search Console
     competitors:
-      - "https://competidor1.com"
-      - "https://competidor2.com"
-
-  # Añade más sitios aquí:
-  # - name: "Mi Segunda Web"
-  #   slug: "SITE2"
-  #   url: "https://misegundaweb.com"
-  #   wp_user: "admin"
-  #   default_category: "Blog"
-  #   language: "es"
-  #   gsc_property: "https://misegundaweb.com"
+      - "https://trustpilot.com"
+      - "https://reseñas.es"
 
 # --- Programación automática ---
 schedule:
@@ -36,11 +27,12 @@ schedule:
 
 # --- Keywords ---
 keywords:
-  niche: "marketing digital"               # Nicho principal para tendencias
+  niche: "reseñas productos online"        # Nicho principal para tendencias
   manual:
-    - "estrategia SEO 2025"
-    - "posicionamiento web"
-    - "link building"
+    - "reseñas productos amazon"
+    - "opiniones productos tecnologia"
+    - "mejores productos calidad precio"
+    - "comparativa productos 2025"
   # Las keywords de GSC y Google Trends se añaden automáticamente
 
 # --- Configuración SEO ---
