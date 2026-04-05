@@ -1,6 +1,6 @@
 """
 Utilidades comunes para EXPERTOSEO
-v1.1 — fuerza redespliegue Railway para cargar variables de entorno actualizadas
+v1.2 — carga credenciales desde data/credentials.yaml (Railway Volume)
 """
 
 import os
@@ -36,13 +36,49 @@ def setup_logging(level: str = "INFO") -> logging.Logger:
 logger = setup_logging()
 
 
+def load_credentials_file() -> None:
+    """
+    Carga credenciales desde data/credentials.yaml (montado en Railway Volume).
+    Esto evita el bug de Railway donde las variables de usuario no llegan al contenedor.
+    Solo sobreescribe variables que NO estén ya definidas en el entorno.
+    """
+    creds_path = DATA_DIR / "credentials.yaml"
+    if not creds_path.exists():
+        return
+    try:
+        with open(creds_path, "r", encoding="utf-8") as f:
+            creds = yaml.safe_load(f) or {}
+        for key, value in creds.items():
+            if value and not os.environ.get(key):
+                os.environ[str(key)] = str(value)
+        logger.debug(f"Credenciales cargadas desde {creds_path} ({len(creds)} variables)")
+    except Exception as e:
+        logger.warning(f"No se pudo cargar credentials.yaml: {e}")
+
+
+def save_credentials_file(creds: dict) -> None:
+    """Guarda credenciales en data/credentials.yaml (Railway Volume)."""
+    DATA_DIR.mkdir(exist_ok=True)
+    creds_path = DATA_DIR / "credentials.yaml"
+    # Filtrar valores vacíos para no sobrescribir con nada
+    filtered = {k: v for k, v in creds.items() if v and str(v).strip()}
+    with open(creds_path, "w", encoding="utf-8") as f:
+        yaml.dump(filtered, f, allow_unicode=True, default_flow_style=False)
+    # Aplicar al entorno actual inmediatamente
+    for key, value in filtered.items():
+        os.environ[str(key)] = str(value)
+
+
 def load_env() -> None:
-    """Carga variables de entorno desde .env."""
+    """Carga variables de entorno: primero credentials.yaml (Volume), luego .env."""
+    # 1. Primero cargar desde el Volume (Railway) — máxima prioridad para bypass del bug
+    load_credentials_file()
+    # 2. Luego .env local (desarrollo)
     env_path = ROOT_DIR / ".env"
     if env_path.exists():
         load_dotenv(env_path)
     else:
-        logger.warning(".env no encontrado. Usando variables de entorno del sistema.")
+        logger.debug(".env no encontrado. Usando variables de entorno del sistema.")
 
 
 def load_config() -> dict:
