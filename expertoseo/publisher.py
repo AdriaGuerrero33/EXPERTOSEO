@@ -1,7 +1,11 @@
 """
 Publicador de artículos en WordPress via REST API.
+Soporta dos métodos de autenticación:
+  1. Token secreto via header X-Expertoseo-Token (bypass nginx Basic Auth)
+  2. Application Password via Basic Auth (fallback)
 """
 
+import os
 import base64
 import mimetypes
 from pathlib import Path
@@ -23,27 +27,38 @@ class WordPressPublisher:
         self.base_url = self.site["url"].rstrip("/")
         self.api_base = f"{self.base_url}/wp-json/wp/v2"
         self.session = requests.Session()
-        self.session.auth = self._make_auth()
         self.session.headers.update({"User-Agent": "EXPERTOSEO/1.0"})
+        self._setup_auth()
 
     def _validate_site_config(self) -> None:
-        required = ["url", "wp_user", "wp_app_password"]
-        for key in required:
-            if not self.site.get(key):
-                raise ValueError(
-                    f"Config del sitio '{self.site.get('name')}' incompleta: falta '{key}'"
-                )
+        if not self.site.get("url"):
+            raise ValueError(f"Config del sitio '{self.site.get('name')}' incompleta: falta 'url'")
+        # Con token secreto no se necesita wp_app_password
+        secret_token = os.getenv("EXPERTOSEO_SECRET_TOKEN", "")
+        if not secret_token and not self.site.get("wp_app_password"):
+            raise ValueError(
+                "Falta autenticación WordPress: configura EXPERTOSEO_SECRET_TOKEN "
+                "(recomendado) o WP_APP_PASSWORD_SITE1 en Railway Variables"
+            )
 
-    def _make_auth(self):
-        """Crea autenticación Basic con Application Password de WordPress."""
-        creds = self.site["wp_app_password"]
-        # Soporta formato "usuario:password" o solo "password"
-        if ":" not in creds:
-            user = self.site["wp_user"]
-            password = creds
+    def _setup_auth(self) -> None:
+        """Configura autenticación: token secreto o Basic Auth."""
+        secret_token = os.getenv("EXPERTOSEO_SECRET_TOKEN", "")
+        if secret_token:
+            # Método 1: token secreto en header personalizado (bypasa nginx)
+            self.session.headers.update({"X-Expertoseo-Token": secret_token})
+            logger.info("WordPress auth: usando token secreto (X-Expertoseo-Token)")
+        elif self.site.get("wp_app_password"):
+            # Método 2: Application Password con Basic Auth
+            creds = self.site["wp_app_password"]
+            if ":" not in creds:
+                user, password = self.site.get("wp_user", ""), creds
+            else:
+                user, password = creds.split(":", 1)
+            self.session.auth = (user.strip(), password.strip())
+            logger.info(f"WordPress auth: Basic Auth como '{user.strip()}'")
         else:
-            user, password = creds.split(":", 1)
-        return (user.strip(), password.strip())
+            raise ValueError("Sin método de autenticación WordPress configurado")
 
     def upload_image(self, image_path: Path, alt_text: str = "", caption: str = "") -> int:
         """

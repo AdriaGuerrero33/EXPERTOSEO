@@ -68,15 +68,20 @@ class ArticleGenerator:
         min_words = self.seo_config.get("min_words", 1500)
         max_words = self.seo_config.get("max_words", 2500)
 
-        prompt = template.format(
-            keyword=keyword,
-            niche=niche or self.config.get("keywords", {}).get("niche", "general"),
-            min_words=min_words,
-            max_words=max_words,
-            competitors_summary=competitors_summary or "No analizado",
-            trends_summary=trends_summary or "No disponible",
-            current_position=current_position,
-        )
+        # Usar reemplazos manuales para evitar que el JSON del template
+        # sea interpretado como placeholders de str.format()
+        replacements = {
+            "{keyword}": keyword,
+            "{niche}": niche or self.config.get("keywords", {}).get("niche", "general"),
+            "{min_words}": str(min_words),
+            "{max_words}": str(max_words),
+            "{competitors_summary}": competitors_summary or "No analizado",
+            "{trends_summary}": trends_summary or "No disponible",
+            "{current_position}": current_position,
+        }
+        prompt = template
+        for placeholder, value in replacements.items():
+            prompt = prompt.replace(placeholder, str(value))
 
         message = self.client.messages.create(
             model=self.model,

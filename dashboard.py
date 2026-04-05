@@ -592,6 +592,32 @@ elif page == "🚀 Publicar":
     with col4:
         st.markdown("")
 
+    # ── Portada personalizada ─────────────────────────────────────────────
+    st.markdown("**Portada** (opcional — si no subes ninguna, el agente genera una automáticamente)")
+    col_img1, col_img2 = st.columns([2, 1])
+    with col_img1:
+        custom_image = st.file_uploader(
+            "Sube tu propia portada",
+            type=["jpg", "jpeg", "png", "webp"],
+            help="Si subes una imagen, se usará como portada en vez de la generada automáticamente",
+            label_visibility="collapsed",
+        )
+    with col_img2:
+        if custom_image:
+            st.image(custom_image, caption="Vista previa portada", use_container_width=True)
+        else:
+            st.caption("Sin imagen → el agente crea una con IA")
+
+    # Guardar imagen personalizada en sesión
+    if custom_image:
+        import tempfile as _tmp
+        _img_tmp = Path(_tmp.gettempdir()) / f"expertoseo_cover_{custom_image.name}"
+        _img_tmp.write_bytes(custom_image.read())
+        st.session_state["custom_cover_path"] = str(_img_tmp)
+    elif "custom_cover_path" in st.session_state and not custom_image:
+        # Si no hay imagen subida y el campo está vacío, limpiar
+        st.session_state.pop("custom_cover_path", None)
+
     st.markdown("---")
 
     # Auto-launch desde la página de inicio
@@ -617,13 +643,14 @@ elif page == "🚀 Publicar":
         expertoseo_logger = logging.getLogger("expertoseo")
         expertoseo_logger.addHandler(ui_handler)
 
+        _cover_path = st.session_state.get("custom_cover_path")
+
         def _pipeline_thread():
             try:
                 cfg = load_config()
                 if as_draft:
                     cfg.setdefault("schedule", {})["publish_status"] = "draft"
                 if keyword_input.strip():
-                    # Poner la keyword al frente de la cola
                     from expertoseo.utils import load_json as _lj, save_json as _sj
                     q = _lj("keywords.json")
                     if not isinstance(q, list):
@@ -631,7 +658,10 @@ elif page == "🚀 Publicar":
                     q.insert(0, keyword_input.strip())
                     _sj("keywords.json", q)
                 from expertoseo.scheduler import run_full_pipeline
-                result_container[0] = run_full_pipeline(cfg, site_slug)
+                result_container[0] = run_full_pipeline(
+                    cfg, site_slug,
+                    custom_image_path=_cover_path,
+                )
             except Exception as e:
                 result_container[0] = {"status": "error", "error": str(e)}
 
@@ -695,12 +725,24 @@ elif page == "🚀 Publicar":
         if result and result.get("status") == "success":
             status_text.empty()
             st.success(f"✅ ¡Artículo publicado correctamente!")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Score SEO", f"{result.get('seo_score', '-')}/100")
-            c2.metric("Estado", result.get("status", "-"))
-            c3.metric("Keyword", result.get("keyword", "-"))
-            if result.get("link"):
-                st.markdown(f"🔗 **[Ver artículo publicado]({result['link']})**")
+            col_res1, col_res2 = st.columns([2, 1])
+            with col_res1:
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Score SEO", f"{result.get('seo_score', '-')}/100")
+                c2.metric("Keyword", result.get("keyword", "-")[:20])
+                c3.metric("Estado", "Publicado" if not as_draft else "Borrador")
+                if result.get("link"):
+                    st.markdown(f"🔗 **[Ver artículo en WordPress]({result['link']})**")
+            with col_res2:
+                # Mostrar portada generada si existe
+                _img_path = result.get("image_path") or _cover_path
+                if _img_path and Path(str(_img_path)).exists():
+                    st.image(str(_img_path), caption="Portada publicada", use_container_width=True)
+                    # Botón para cambiar portada
+                    new_cover = st.file_uploader("Cambiar portada", type=["jpg","jpeg","png","webp"],
+                                                  key="change_cover_after")
+                    if new_cover and result.get("post_id"):
+                        st.info("Para cambiar la portada, republica con la nueva imagen.")
         else:
             status_text.empty()
             err = result.get("error", "Error desconocido") if result else "Sin respuesta"

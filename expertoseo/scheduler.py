@@ -15,7 +15,8 @@ from .utils import load_config, load_json, save_json, logger, now_str
 console = Console()
 
 
-def run_full_pipeline(config: dict | None = None, site_slug: str | None = None) -> dict:
+def run_full_pipeline(config: dict | None = None, site_slug: str | None = None,
+                      custom_image_path: str | None = None) -> dict:
     """
     Ejecuta el pipeline completo de publicación de un artículo:
     keyword_research → article_generator → seo_optimizer → image_generator → publisher → rankmath
@@ -72,12 +73,16 @@ def run_full_pipeline(config: dict | None = None, site_slug: str | None = None) 
         else:
             publish_status = cfg.get("schedule", {}).get("publish_status", "publish")
 
-        # 4. Generar portada
-        image_gen = ImageGenerator(cfg)
-        image_path = image_gen.generate(
-            prompt=article.image_prompt,
-            filename=article.slug,
-        )
+        # 4. Portada: usar imagen personalizada o generar automáticamente
+        if custom_image_path and Path(custom_image_path).exists():
+            image_path = Path(custom_image_path)
+            logger.info(f"Usando portada personalizada: {image_path.name}")
+        else:
+            image_gen = ImageGenerator(cfg)
+            image_path = image_gen.generate(
+                prompt=article.image_prompt,
+                filename=article.slug,
+            )
         result["image_path"] = str(image_path)
 
         # 5. Generar schemas JSON-LD
