@@ -1209,10 +1209,28 @@ elif page == "🔑 Keywords":
 # PÁGINA: ASISTENTE SEO
 # ─────────────────────────────────────────────
 elif page == "💬 Asistente":
-    st.title("💬 Asistente SEO — Claude")
-    st.markdown("Habla con tu experto SEO personal. Pregúntale sobre posicionamiento, análisis de tu web, estrategias, o pídele que genere contenido.")
+    st.title("💬 Asistente SEO")
+    st.markdown(
+        "Pregunta cualquier cosa. El asistente tiene acceso real a WordPress, "
+        "GSC, artículos, keywords y puede ejecutar acciones directamente."
+    )
 
-    # Inicializar asistente en session_state (mantiene historial multi-turn)
+    # Acciones rápidas
+    _qa_cols = st.columns(4)
+    _qa_prompts = {
+        "🔌 Estado WP": "Comprueba si WordPress está conectado y dime el resultado exacto",
+        "📊 Rankings": "Muéstrame los rankings actuales de GSC y las oportunidades más importantes",
+        "🔑 Keywords": "Muéstrame la cola de keywords y recomiéndame cuál publicar primero",
+        "📝 Artículos": "Muéstrame los últimos artículos publicados con sus links y scores SEO",
+    }
+    for _qcol, (_qlabel, _qprompt) in zip(_qa_cols, _qa_prompts.items()):
+        with _qcol:
+            if st.button(_qlabel, use_container_width=True, key=f"qa_{_qlabel}"):
+                st.session_state["pending_assistant_msg"] = _qprompt
+
+    st.markdown("---")
+
+    # Inicializar asistente
     if "seo_assistant" not in st.session_state:
         try:
             config = _load_config_safe()
@@ -1223,39 +1241,37 @@ elif page == "💬 Asistente":
             st.error(f"Error iniciando el asistente: {e}")
             st.stop()
 
-    # Mostrar historial de chat
+    # Historial de chat
     for msg in st.session_state.get("chat_history", []):
         with st.chat_message(msg["role"], avatar="🧑" if msg["role"] == "user" else "🤖"):
             st.markdown(msg["content"])
 
-    # Mensaje pre-cargado desde el checklist
+    # Mensaje pre-cargado (desde botones de acceso rápido)
     if "pending_assistant_msg" in st.session_state:
         pending = st.session_state.pop("pending_assistant_msg")
         with st.chat_message("user", avatar="🧑"):
             st.markdown(pending)
         st.session_state["chat_history"].append({"role": "user", "content": pending})
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Analizando..."):
+            with st.spinner("Consultando APIs... (puede tardar unos segundos)"):
                 try:
                     response = st.session_state["seo_assistant"].chat(pending)
                     st.markdown(response)
                     st.session_state["chat_history"].append({"role": "assistant", "content": response})
                 except Exception as e:
                     st.error(str(e))
+        st.rerun()
 
-    # Input del usuario
-    if prompt := st.chat_input("Pregunta algo sobre tu SEO..."):
-        # Mostrar mensaje del usuario
+    # Input
+    if prompt := st.chat_input("Pregunta algo — puede ejecutar acciones reales en WordPress, GSC, etc."):
         with st.chat_message("user", avatar="🧑"):
             st.markdown(prompt)
         st.session_state["chat_history"].append({"role": "user", "content": prompt})
 
-        # Respuesta del asistente
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Analizando..."):
+            with st.spinner("Pensando y consultando herramientas..."):
                 try:
-                    assistant = st.session_state["seo_assistant"]
-                    response = assistant.chat(prompt)
+                    response = st.session_state["seo_assistant"].chat(prompt)
                     st.markdown(response)
                     st.session_state["chat_history"].append({"role": "assistant", "content": response})
                 except Exception as e:
@@ -1263,9 +1279,8 @@ elif page == "💬 Asistente":
                     st.error(err_msg)
                     st.session_state["chat_history"].append({"role": "assistant", "content": err_msg})
 
-    # Botón para limpiar historial
     if st.session_state.get("chat_history"):
-        if st.button("🗑️ Limpiar conversación", help="Borra el historial del chat"):
+        if st.button("🗑️ Limpiar conversación"):
             st.session_state["chat_history"] = []
             config = _load_config_safe()
             from expertoseo.assistant import SEOAssistant
