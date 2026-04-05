@@ -765,6 +765,42 @@ elif page == "🔌 Estado APIs":
 
     import os
 
+    # ── Diagnóstico de variables de entorno ──────────────────────────────
+    REQUIRED_VARS = ["ANTHROPIC_API_KEY", "WP_APP_PASSWORD_SITE1", "OPENAI_API_KEY",
+                     "UNSPLASH_ACCESS_KEY", "GOOGLE_SERVICE_ACCOUNT_JSON"]
+
+    with st.expander("🔍 Diagnóstico: ¿qué variables ve el contenedor?", expanded=True):
+        st.caption("Esto muestra exactamente qué variables tiene Railway en este contenedor.")
+        found_any = False
+        for var in REQUIRED_VARS:
+            val = os.environ.get(var, "")
+            if val:
+                masked = val[:6] + "****" + val[-3:] if len(val) > 12 else "****"
+                st.markdown(f"✅ `{var}` → `{masked}` ({len(val)} caracteres)")
+                found_any = True
+            else:
+                st.markdown(f"❌ `{var}` → **no encontrada en el entorno del contenedor**")
+
+        # Mostrar todas las variables de entorno que SÍ están (sin valores sensibles)
+        all_env_keys = sorted(os.environ.keys())
+        custom_keys = [k for k in all_env_keys if not k.startswith(("PATH", "HOME", "USER", "SHELL", "LANG", "LC_", "PWD", "SHLVL", "TERM", "HOSTNAME"))]
+        st.markdown(f"\n**Variables personalizadas visibles en este contenedor ({len(custom_keys)}):**")
+        st.code(" | ".join(custom_keys) if custom_keys else "(ninguna)", language=None)
+
+        if not found_any:
+            st.error("⚠️ **Ninguna variable de Railway está llegando al contenedor.** "
+                     "Esto significa que el contenedor fue construido ANTES de añadir las variables. "
+                     "Solución: **haz un Redeploy manual en Railway** (ver instrucciones abajo).")
+            st.markdown("""
+**Cómo hacer Redeploy manual en Railway:**
+1. Ve a tu servicio EXPERTOSEO en Railway
+2. Pestaña **Deployments**
+3. En el deployment activo → clic en los **3 puntos** (⋮) de la derecha
+4. Clic en **Redeploy**
+5. Espera 2-3 minutos
+6. Recarga esta página
+""")
+
     def _check(label, fn):
         try:
             ok, msg = fn()
