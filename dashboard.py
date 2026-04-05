@@ -757,21 +757,62 @@ elif page == "🚀 Publicar":
     # ─── TAB 2: CALENDARIO ────────────────────────────────────────────────────
     with _pub_tab2:
         import calendar as _cal
-        from datetime import datetime as _dt
+        from datetime import datetime as _dt, date as _date_t, timedelta as _td
 
         _now = _dt.now()
+
+        # ── Cargar datos ──────────────────────────────────────────────────
         _pub_all = load_json("published.json")
         if not isinstance(_pub_all, list):
             _pub_all = []
+        _plan_all = load_json("schedule_plan.json")
+        if not isinstance(_plan_all, list):
+            _plan_all = []
 
-        # Construir índice por fecha
+        # Índice por fecha: publicados y programados
         _pub_by_date: dict = {}
         for _p in _pub_all:
             _d = (_p.get("date") or "")[:10]
             if _d:
-                _pub_by_date.setdefault(_d, []).append(_p)
+                _pub_by_date.setdefault(_d, []).append({"type": "published", **_p})
 
-        # Selector mes/año
+        _plan_by_date: dict = {}
+        for _e in _plan_all:
+            _d = (_e.get("date") or "")[:10]
+            if _d and _e.get("status") == "pending":
+                _plan_by_date.setdefault(_d, []).append(_e)
+
+        # ── Botones de acción ─────────────────────────────────────────────
+        _btn_col1, _btn_col2, _btn_col3 = st.columns(3)
+        with _btn_col1:
+            if st.button("🤖 Auto-programar próximos 30 días", type="primary", use_container_width=True,
+                         help="Genera automáticamente 1 artículo cada 2 días durante los próximos 30 días"):
+                try:
+                    from expertoseo.scheduler import generate_auto_schedule
+                    _new_plan = generate_auto_schedule(n_articles=15)
+                    _pending = sum(1 for e in _new_plan if e.get("status") == "pending")
+                    st.success(f"✅ Plan actualizado: {_pending} artículos programados (1 cada 2 días)")
+                    st.rerun()
+                except Exception as _ex:
+                    st.error(str(_ex))
+        with _btn_col2:
+            _pending_count = sum(1 for e in _plan_all if e.get("status") == "pending")
+            st.markdown(
+                f'<div class="kpi-card"><div class="kpi-val">{_pending_count}</div>'
+                f'<div class="kpi-lbl">Programados</div></div>',
+                unsafe_allow_html=True,
+            )
+        with _btn_col3:
+            _pub_count = sum(1 for e in _plan_all if e.get("status") == "published")
+            st.markdown(
+                f'<div class="kpi-card"><div class="kpi-val">{len(_pub_all)}</div>'
+                f'<div class="kpi-lbl">Publicados</div></div>',
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("---")
+
+        # ── Selector mes/año ──────────────────────────────────────────────
         _col_m1, _col_m2, _col_m3 = st.columns([1, 1, 3])
         with _col_m1:
             _sel_month = st.selectbox("Mes", list(range(1, 13)), index=_now.month - 1,
@@ -782,10 +823,20 @@ elif page == "🚀 Publicar":
         _month_name = _dt(_sel_year, _sel_month, 1).strftime("%B %Y")
         st.subheader(f"📅 {_month_name}")
 
-        # Construir calendario HTML
+        # Leyenda
+        st.markdown(
+            '<div style="display:flex;gap:16px;margin-bottom:12px;font-size:.78rem">'
+            '<span style="color:#30d158">● Publicado</span>'
+            '<span style="color:#0a84ff">● Programado</span>'
+            '<span style="color:#ff9f0a">● Hoy</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Cuadrícula del calendario ─────────────────────────────────────
         _weeks = _cal.monthcalendar(_sel_year, _sel_month)
         _day_names = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-        _cal_html = ['<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:12px">']
+        _cal_html = ['<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:4px">']
         for dn in _day_names:
             _cal_html.append(f'<div style="text-align:center;font-size:.7rem;color:rgba(255,255,255,.4);padding:4px;font-weight:600;letter-spacing:.05em">{dn}</div>')
         _total_month_pubs = 0
@@ -795,58 +846,106 @@ elif page == "🚀 Publicar":
                     _cal_html.append('<div></div>')
                 else:
                     _date_str = f"{_sel_year}-{_sel_month:02d}-{_day:02d}"
-                    _pubs = _pub_by_date.get(_date_str, [])
-                    _total_month_pubs += len(_pubs)
-                    _is_today = (_date_str == _now.strftime("%Y-%m-%d"))
-                    if _pubs:
-                        _titles = "\n".join(f"• {p.get('title','?')[:30]}" for p in _pubs)
-                        _bg = "rgba(48,209,88,0.2)"
-                        _border = "1px solid #30d158"
-                        _color = "#30d158"
-                        _badge = f'<div style="font-size:.65rem;margin-top:2px">{len(_pubs)} art.</div>'
+                    _pubs_day  = _pub_by_date.get(_date_str, [])
+                    _sched_day = _plan_by_date.get(_date_str, [])
+                    _is_today  = (_date_str == _now.strftime("%Y-%m-%d"))
+                    _total_month_pubs += len(_pubs_day)
+
+                    if _pubs_day:
+                        _bg = "rgba(48,209,88,0.18)"; _border = "1.5px solid #30d158"; _color = "#30d158"
+                        _kw_hint = (_pubs_day[0].get("keyword") or "")[:12]
+                        _badge = f'<div style="font-size:.58rem;margin-top:2px;color:#30d158">{len(_pubs_day)} pub.</div>'
+                        if _kw_hint:
+                            _badge += f'<div style="font-size:.55rem;color:rgba(255,255,255,.4);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:100%">{_kw_hint}</div>'
+                    elif _sched_day:
+                        _bg = "rgba(10,132,255,0.15)"; _border = "1.5px solid #0a84ff"; _color = "#0a84ff"
+                        _kw_hint = (_sched_day[0].get("keyword") or "auto")[:12]
+                        _badge = f'<div style="font-size:.6rem;margin-top:2px;color:#0a84ff">⏰ prog.</div>'
+                        _badge += f'<div style="font-size:.55rem;color:rgba(255,255,255,.4);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:100%">{_kw_hint}</div>'
                     elif _is_today:
-                        _bg = "rgba(10,132,255,0.15)"
-                        _border = "1px solid #0a84ff"
-                        _color = "#0a84ff"
-                        _badge = '<div style="font-size:.6rem;margin-top:2px">hoy</div>'
+                        _bg = "rgba(255,159,10,0.15)"; _border = "1.5px solid #ff9f0a"; _color = "#ff9f0a"
+                        _badge = '<div style="font-size:.6rem;margin-top:2px;color:#ff9f0a">HOY</div>'
                     else:
-                        _bg = "rgba(255,255,255,0.04)"
-                        _border = "1px solid rgba(255,255,255,0.08)"
-                        _color = "rgba(255,255,255,.6)"
+                        _bg = "rgba(255,255,255,0.03)"; _border = "1px solid rgba(255,255,255,0.07)"; _color = "rgba(255,255,255,.55)"
                         _badge = ""
                     _cal_html.append(
-                        f'<div style="background:{_bg};border:{_border};border-radius:10px;padding:8px 4px;'
-                        f'text-align:center;min-height:54px">'
-                        f'<div style="font-size:.9rem;font-weight:600;color:{_color}">{_day}</div>'
+                        f'<div style="background:{_bg};border:{_border};border-radius:10px;padding:7px 3px;'
+                        f'text-align:center;min-height:56px;overflow:hidden">'
+                        f'<div style="font-size:.88rem;font-weight:700;color:{_color}">{_day}</div>'
                         f'{_badge}</div>'
                     )
         _cal_html.append('</div>')
         st.markdown("".join(_cal_html), unsafe_allow_html=True)
 
-        st.markdown(f"**Total publicado en {_month_name}: {_total_month_pubs} artículo(s)**")
+        # ── Añadir publicación manual ─────────────────────────────────────
+        st.markdown("---")
+        _add_col, _list_col = st.columns([1, 1])
+        with _add_col:
+            st.subheader("➕ Programar artículo")
+            with st.form("add_schedule_form"):
+                _new_date = st.date_input("Fecha de publicación", min_value=_date_t.today())
+                _new_kw   = st.text_input("Keyword (opcional — vacío = auto)",
+                                          placeholder="🏆 mejores reseñas de auriculares")
+                _new_hour = st.selectbox("Hora", ["07:00", "08:00", "09:00", "10:00", "11:00", "12:00"], index=2)
+                _add_btn  = st.form_submit_button("📅 Añadir al calendario", use_container_width=True)
+                if _add_btn:
+                    import uuid as _uuid
+                    _new_entry = {
+                        "id": f"plan_{_uuid.uuid4().hex[:8]}",
+                        "date": _new_date.strftime("%Y-%m-%d"),
+                        "datetime": f"{_new_date.strftime('%Y-%m-%d')}T{_new_hour}:00",
+                        "keyword": _new_kw.strip() or None,
+                        "status": "pending",
+                        "created_at": _date_t.today().strftime("%Y-%m-%d"),
+                    }
+                    _plan_all.append(_new_entry)
+                    _plan_all.sort(key=lambda e: e.get("date", ""))
+                    save_json("schedule_plan.json", _plan_all)
+                    st.success(f"✅ Programado para {_new_date.strftime('%d/%m/%Y')} a las {_new_hour}")
+                    st.rerun()
 
-        # Lista detallada del mes
-        _month_pubs = [(d, p) for d, ps in _pub_by_date.items()
-                       for p in ps if d.startswith(f"{_sel_year}-{_sel_month:02d}")]
-        _month_pubs.sort(key=lambda x: x[0])
-        if _month_pubs:
-            st.markdown("---")
-            for _d, _p in _month_pubs:
-                _score = _p.get("seo_score", "-")
-                _kw = _p.get("keyword", "—")
-                _link = _p.get("link", "")
-                _title = _p.get("title", "Sin título")
-                _score_color = "#30d158" if isinstance(_score, int) and _score >= 70 else "#ff9f0a" if isinstance(_score, int) and _score >= 50 else "#ff453a"
-                _link_html = f' <a href="{_link}" target="_blank" style="color:#0a84ff;font-size:.8rem">↗ Ver</a>' if _link else ""
-                st.markdown(
-                    f'<div style="background:#1c1c1e;border-radius:10px;padding:10px 14px;margin-bottom:6px;border:1px solid rgba(255,255,255,.08)">'
-                    f'<span style="color:rgba(255,255,255,.4);font-size:.75rem">{_d}</span>'
-                    f'<span style="margin-left:12px;font-weight:600;color:#fff">{_title}</span>{_link_html}<br>'
-                    f'<span style="font-size:.78rem;color:rgba(255,255,255,.5)">Keyword: {_kw}</span>'
-                    f'<span style="margin-left:16px;font-size:.78rem;color:{_score_color}">SEO: {_score}/100</span>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+        with _list_col:
+            st.subheader(f"📋 Plan de {_month_name}")
+            _month_plan = [e for e in _plan_all if (e.get("date") or "").startswith(f"{_sel_year}-{_sel_month:02d}")]
+            _month_published = [(d, p) for d, ps in _pub_by_date.items()
+                                for p in ps if d.startswith(f"{_sel_year}-{_sel_month:02d}")]
+            _month_published.sort(key=lambda x: x[0])
+
+            if not _month_plan and not _month_published:
+                st.info("Sin artículos este mes. Pulsa **Auto-programar** para llenar el calendario.")
+            else:
+                for _e in sorted(_month_plan, key=lambda x: x.get("date", "")):
+                    _e_kw   = _e.get("keyword") or "auto"
+                    _e_date = _e.get("date", "")
+                    _e_st   = _e.get("status", "pending")
+                    _e_time = (_e.get("datetime") or "")[-8:-3] or "09:00"
+                    _st_badge = '<span style="color:#0a84ff">⏰ programado</span>' if _e_st == "pending" else '<span style="color:#30d158">✅ publicado</span>'
+                    _del_key = f"del_plan_{_e.get('id','')}"
+                    _row_cols = st.columns([4, 1])
+                    with _row_cols[0]:
+                        st.markdown(
+                            f'<div style="background:#1c1c1e;border-radius:8px;padding:8px 12px;margin-bottom:4px;border:1px solid rgba(10,132,255,.2)">'
+                            f'<span style="color:rgba(255,255,255,.5);font-size:.72rem">{_e_date} {_e_time}</span> {_st_badge}<br>'
+                            f'<span style="color:#fff;font-size:.85rem">🎯 {_e_kw}</span></div>',
+                            unsafe_allow_html=True,
+                        )
+                    with _row_cols[1]:
+                        if st.button("✕", key=_del_key, help="Eliminar"):
+                            _plan_all = [x for x in _plan_all if x.get("id") != _e.get("id")]
+                            save_json("schedule_plan.json", _plan_all)
+                            st.rerun()
+                for _d, _p in _month_published:
+                    _score = _p.get("seo_score", "-")
+                    _kw    = _p.get("keyword", "—")
+                    _title = _p.get("title", "Sin título")[:40]
+                    _link  = _p.get("link", "")
+                    _link_html = f' <a href="{_link}" target="_blank" style="color:#0a84ff;font-size:.75rem">↗</a>' if _link else ""
+                    st.markdown(
+                        f'<div style="background:rgba(48,209,88,.06);border-radius:8px;padding:8px 12px;margin-bottom:4px;border:1px solid rgba(48,209,88,.2)">'
+                        f'<span style="color:rgba(255,255,255,.5);font-size:.72rem">{_d}</span> <span style="color:#30d158;font-size:.72rem">✅ publicado</span><br>'
+                        f'<span style="color:#fff;font-size:.85rem">{_title}</span>{_link_html}</div>',
+                        unsafe_allow_html=True,
+                    )
 
     # ─── TAB 3: RANKMATH SEO ──────────────────────────────────────────────────
     with _pub_tab3:

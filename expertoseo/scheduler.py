@@ -1,8 +1,10 @@
 """
 Scheduler automático: publica un artículo SEO cada 2 días.
+Soporta plan de publicación programada guardado en data/schedule_plan.json.
 """
 
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta, date
 from pathlib import Path
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -15,8 +17,104 @@ from .utils import load_config, load_json, save_json, logger, now_str
 console = Console()
 
 
+# ── Plan de publicación programada ────────────────────────────────────────────
+
+def load_schedule_plan() -> list:
+    """Carga el plan de publicación desde schedule_plan.json."""
+    data = load_json("schedule_plan.json")
+    return data if isinstance(data, list) else []
+
+
+def save_schedule_plan(plan: list) -> None:
+    """Guarda el plan de publicación en schedule_plan.json."""
+    save_json("schedule_plan.json", plan)
+
+
+def generate_auto_schedule(
+    config: dict | None = None,
+    n_articles: int = 15,
+    interval_days: int = 2,
+    publish_time: str = "09:00",
+    start_from: date | None = None,
+) -> list:
+    """
+    Genera automáticamente un plan de publicación: 1 artículo cada interval_days días.
+    Respeta los artículos ya programados y las fechas ya publicadas.
+    Devuelve el plan actualizado (existentes + nuevas entradas pendientes).
+    """
+    cfg = config or load_config()
+    interval_days = cfg.get("schedule", {}).get("interval_days", interval_days)
+    publish_time = cfg.get("schedule", {}).get("publish_time", publish_time)
+
+    existing_plan = load_schedule_plan()
+    # Fechas ya ocupadas (programadas o publicadas)
+    occupied: set[str] = {e["date"] for e in existing_plan if e.get("date")}
+
+    # Cargar publicaciones ya hechas
+    published = load_json("published.json")
+    if isinstance(published, list):
+        for p in published:
+            d = (p.get("date") or "")[:10]
+            if d:
+                occupied.add(d)
+
+    hour, minute = map(int, publish_time.split(":"))
+    start = start_from or date.today()
+    # Buscar el siguiente slot libre a partir de hoy
+    current = start
+    new_entries = []
+    added = 0
+    max_iterations = n_articles * 10
+
+    while added < n_articles and max_iterations > 0:
+        max_iterations -= 1
+        date_str = current.strftime("%Y-%m-%d")
+        if date_str not in occupied:
+            new_entries.append({
+                "id": f"plan_{uuid.uuid4().hex[:8]}",
+                "date": date_str,
+                "datetime": f"{date_str}T{hour:02d}:{minute:02d}:00",
+                "keyword": None,     # None = auto-seleccionar de la cola
+                "status": "pending",
+                "created_at": date.today().strftime("%Y-%m-%d"),
+            })
+            occupied.add(date_str)
+            added += 1
+        current += timedelta(days=interval_days)
+
+    plan = existing_plan + new_entries
+    plan.sort(key=lambda e: e.get("date", ""))
+    save_schedule_plan(plan)
+    logger.info(f"Plan de publicación actualizado: {added} nuevas entradas, {len(plan)} total")
+    return plan
+
+
+def get_todays_scheduled_entry() -> dict | None:
+    """Retorna la entrada del plan que debe publicarse hoy (si existe y está pendiente)."""
+    today = date.today().strftime("%Y-%m-%d")
+    for entry in load_schedule_plan():
+        if entry.get("date") == today and entry.get("status") == "pending":
+            return entry
+    return None
+
+
+def mark_plan_entry_published(entry_id: str, post_result: dict) -> None:
+    """Marca una entrada del plan como publicada."""
+    plan = load_schedule_plan()
+    for entry in plan:
+        if entry.get("id") == entry_id:
+            entry["status"] = "published"
+            entry["post_id"] = post_result.get("id")
+            entry["post_link"] = post_result.get("link")
+            entry["published_at"] = now_str()
+            break
+    save_schedule_plan(plan)
+
+
 def run_full_pipeline(config: dict | None = None, site_slug: str | None = None,
-                      custom_image_path: str | None = None) -> dict:
+                      custom_image_path: str | None = None,
+                      scheduled_date: str | None = None,
+                      plan_entry_id: str | None = None) -> dict:
     """
     Ejecuta el pipeline completo de publicación de un artículo:
     keyword_research → article_generator → seo_optimizer → image_generator → publisher → rankmath
@@ -94,13 +192,14 @@ def run_full_pipeline(config: dict | None = None, site_slug: str | None = None,
             + generator.generate_faq_schema(article.faq_items)
         )
 
-        # 6. Publicar en WordPress
+        # 6. Publicar en WordPress (con Elementor + fecha programada si aplica)
         publisher = WordPressPublisher(cfg, site_slug)
         post_result = publisher.publish(
             article=article,
             image_path=image_path,
             status=publish_status,
             schema_html=schema_html,
+            scheduled_date=scheduled_date,
         )
         result.update(post_result)
         result["status"] = "success"
@@ -109,7 +208,11 @@ def run_full_pipeline(config: dict | None = None, site_slug: str | None = None,
         rankmath = RankMathController(cfg, site_slug)
         rankmath.configure_post(post_result["id"], article)
 
-        # 8. Guardar en historial
+        # 8. Marcar entrada del plan como publicada (si viene del scheduler automático)
+        if plan_entry_id:
+            mark_plan_entry_published(plan_entry_id, post_result)
+
+        # 9. Guardar en historial
         _save_to_log(result)
 
         console.print(f"\n[bold green]Artículo publicado correctamente:[/bold green]")
@@ -244,5 +347,21 @@ class BackgroundArticleScheduler:
         return None
 
     def _run_job(self) -> None:
-        logger.info(f"Scheduler: iniciando pipeline automático — {now_str()}")
-        run_full_pipeline(self.config, self.site_slug)
+        logger.info(f"Scheduler: comprobando plan de publicación — {now_str()}")
+        # Primero comprobar si hay una entrada programada para hoy
+        entry = get_todays_scheduled_entry()
+        if entry:
+            keyword = entry.get("keyword")  # puede ser None (auto-selección)
+            logger.info(f"Scheduler: publicando entrada del plan — {entry['date']} | keyword: {keyword or 'auto'}")
+            if keyword:
+                from .utils import load_json as _lj, save_json as _sj
+                q = _lj("keywords.json")
+                if not isinstance(q, list):
+                    q = []
+                q.insert(0, keyword)
+                _sj("keywords.json", q)
+            run_full_pipeline(self.config, self.site_slug, plan_entry_id=entry["id"])
+        else:
+            # Sin entrada en el plan para hoy: usar el intervalo regular
+            logger.info(f"Scheduler: pipeline regular (sin entrada en plan) — {now_str()}")
+            run_full_pipeline(self.config, self.site_slug)

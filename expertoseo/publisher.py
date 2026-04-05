@@ -5,9 +5,10 @@ Soporta dos métodos de autenticación:
   2. Application Password via Basic Auth (fallback)
 """
 
+import json as _json
 import os
-import base64
 import mimetypes
+import uuid
 from pathlib import Path
 from datetime import datetime
 
@@ -15,6 +16,41 @@ import requests
 
 from .article_generator import ArticleData
 from .utils import load_config, get_site_config, logger
+
+
+def _build_elementor_data(article_html: str, intro_html: str = "", faq_items: list | None = None) -> str:
+    """
+    Genera el JSON de Elementor Page Builder para un artículo.
+    Crea un layout limpio y estructurado que se integra con cualquier tema de Elementor.
+    """
+    def uid() -> str:
+        return uuid.uuid4().hex[:8]
+
+    # Sección principal: contenido del artículo
+    content_widget = {
+        "id": uid(), "elType": "widget", "widgetType": "text-editor",
+        "settings": {"editor": article_html, "align": "left"},
+        "elements": [],
+    }
+
+    main_section = {
+        "id": uid(), "elType": "section",
+        "settings": {
+            "gap": "no",
+            "content_width": {"unit": "px", "size": 960, "sizes": {}},
+            "padding": {"unit": "em", "top": "1", "right": "0", "bottom": "1", "left": "0", "isLinked": False},
+        },
+        "isInner": False,
+        "elements": [
+            {
+                "id": uid(), "elType": "column",
+                "settings": {"_column_size": 100, "_inline_size": None},
+                "elements": [content_widget],
+            }
+        ],
+    }
+
+    return _json.dumps([main_section], ensure_ascii=False)
 
 
 class WordPressPublisher:
@@ -153,20 +189,22 @@ class WordPressPublisher:
         image_path: Path | None = None,
         status: str = "publish",
         schema_html: str = "",
+        scheduled_date: str | None = None,
     ) -> dict:
         """
-        Publica un artículo completo en WordPress.
+        Publica un artículo completo en WordPress con formato Elementor.
 
         Args:
             article: ArticleData con el contenido generado.
             image_path: Path a la imagen de portada (opcional).
-            status: "publish", "draft" o "pending".
+            status: "publish", "draft", "future" o "pending".
             schema_html: Schema JSON-LD adicional (Article + FAQ).
+            scheduled_date: ISO 8601 datetime para publicación programada (ej: "2026-04-09T09:00:00").
 
         Returns:
             Dict con id, link y otros datos del post publicado.
         """
-        logger.info(f"Publicando en WordPress: '{article.seo_title}' [{status}]")
+        logger.info(f"Publicando en WordPress (Elementor): '{article.seo_title}' [{status}]")
 
         # 1. Subir imagen de portada
         featured_media_id = None
@@ -184,25 +222,36 @@ class WordPressPublisher:
         # 3. Obtener/crear tags
         tag_ids = self.get_or_create_tags(article.tags[:5])
 
-        # 4. Preparar contenido final con schema
+        # 4. Preparar contenido — schema + HTML del artículo
         full_content = article.article_html
         if schema_html:
             full_content = schema_html + "\n" + full_content
 
-        # 5. Crear el post
+        # 5. Generar Elementor JSON para que el post use el builder
+        elementor_json = _build_elementor_data(full_content, faq_items=article.faq_items)
+        logger.info("Elementor JSON generado para el post")
+
+        # 6. Preparar datos del post
         post_data: dict = {
             "title": article.seo_title,
-            "content": full_content,
+            "content": full_content,           # también en content por si el tema lo usa
             "slug": article.slug,
-            "status": status,
+            "status": "future" if scheduled_date else status,
             "categories": [category_id],
             "tags": tag_ids,
             "meta": {
+                # RankMath SEO
                 "rank_math_title": article.seo_title,
                 "rank_math_description": article.meta_description,
                 "rank_math_focus_keyword": article.focus_keyword,
+                # Elementor — activa el page builder en este post
+                "_elementor_edit_mode": "builder",
+                "_elementor_data": elementor_json,
+                "_elementor_version": "3.x",
             },
         }
+        if scheduled_date:
+            post_data["date"] = scheduled_date        # hora local del servidor WP
         if featured_media_id:
             post_data["featured_media"] = featured_media_id
         if self.site.get("default_author_id"):
