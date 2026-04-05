@@ -213,10 +213,15 @@ with st.sidebar:
     st.markdown("---")
     page = st.radio(
         "Navegación",
-        ["🏠 Inicio", "📝 Artículos", "📊 Rankings", "🚀 Publicar", "🔑 Keywords",
-         "💬 Asistente", "🗝️ Credenciales", "✅ Checklist SEO", "🔌 Estado APIs", "⚙️ Configuración"],
+        ["🏠 Inicio", "📝 Artículos", "📊 Rankings", "🚀 Publicar",
+         "🔑 Keywords", "💬 Asistente", "🗝️ Credenciales", "⚙️ Configuración"],
         label_visibility="collapsed",
     )
+
+    # Aviso de volumen: si data/credentials.yaml no existe, los datos no persisten
+    _creds_yaml = DATA_DIR / "credentials.yaml"
+    if not _creds_yaml.exists():
+        st.warning("⚠️ Sin persistencia — Ve a Railway → tu servicio → **Volumes** → montar `/app/data` para que los datos no se borren al redesplegar.", icon="⚠️")
     st.markdown("---")
 
     if not _BOOT_OK:
@@ -1156,198 +1161,158 @@ elif page == "⚙️ Configuración":
 # PÁGINA: CREDENCIALES
 # ─────────────────────────────────────────────
 elif page == "🗝️ Credenciales":
-    import os as _os
+    import os as _os, requests as _req
 
     st.title("🗝️ Credenciales y API Keys")
-    st.markdown("Introduce tus claves de API aquí. Se guardan de forma segura en el servidor y permanecen entre reinicios.")
 
+    # ── Persistencia ─────────────────────────────────────────────────────────
+    _creds_path = DATA_DIR / "credentials.yaml"
+    _volume_ok  = _creds_path.exists()
+
+    if not _volume_ok:
+        st.error("""
+**⚠️ Sin volumen persistente** — los datos se pierden cuando Railway redespliega.
+Para que las credenciales (y artículos publicados, keywords, rankings) se guarden para siempre:
+1. Ve a Railway → tu proyecto → pestaña **Volumes** → **Add Volume**
+2. Mount path: `/app/data`
+3. Despliega el servicio
+
+Mientras tanto, añade las credenciales de WordPress directamente en **Railway Variables** (siguiendo las instrucciones de abajo).
+""")
+
+    # ── Estado actual ──────────────────────────────────────────────────────
     CREDS_DEF = [
-        ("ANTHROPIC_API_KEY",        "Claude AI API Key",                              True),
-        ("WP_USERNAME_SITE1",        "WordPress Username",                             True),
-        ("WP_APP_PASSWORD_SITE1",    "WordPress Application Password",                 True),
-        ("OPENAI_API_KEY",           "OpenAI API Key (opcional — imágenes DALL-E)",    False),
-        ("UNSPLASH_ACCESS_KEY",      "Unsplash API Key (opcional — imágenes temáticas)", False),
-        ("GOOGLE_SERVICE_ACCOUNT_JSON", "Google Service Account JSON (opcional — rankings GSC)", False),
+        ("ANTHROPIC_API_KEY",           "Claude AI",            True),
+        ("WP_USERNAME_SITE1",           "WP Usuario",           True),
+        ("WP_APP_PASSWORD_SITE1",       "WP Contraseña App",    True),
+        ("OPENAI_API_KEY",              "OpenAI",               False),
+        ("UNSPLASH_ACCESS_KEY",         "Unsplash",             False),
+        ("GOOGLE_SERVICE_ACCOUNT_JSON", "Google GSC",           False),
     ]
-
     required_ok = all(_os.environ.get(k) for k, _, req in CREDS_DEF if req)
     if required_ok:
-        st.success("✅ Todas las credenciales obligatorias están configuradas.")
-    else:
-        st.error("⚠️ Faltan credenciales obligatorias. Introdúcelas abajo y pulsa Guardar.")
+        st.success("✅ Todas las credenciales obligatorias están activas.")
 
-    st.markdown("")
-    # Status row
-    cols_status = st.columns(len(CREDS_DEF))
-    for i, (key, label, required) in enumerate(CREDS_DEF):
-        with cols_status[i]:
+    cols_s = st.columns(len(CREDS_DEF))
+    for i, (key, label, req) in enumerate(CREDS_DEF):
+        with cols_s[i]:
             val = _os.environ.get(key, "")
-            short_label = label.split("(")[0].strip()
             if val:
-                st.markdown(f"**{short_label}**")
-                st.markdown('<span class="cred-ok">✓ Configurada</span>', unsafe_allow_html=True)
-            elif required:
-                st.markdown(f"**{short_label}**")
-                st.markdown('<span class="cred-bad">✗ Obligatoria</span>', unsafe_allow_html=True)
+                st.markdown(f'**{label}**\n\n<span class="cred-ok">✓ OK</span>', unsafe_allow_html=True)
+            elif req:
+                st.markdown(f'**{label}**\n\n<span class="cred-bad">✗ Falta</span>', unsafe_allow_html=True)
             else:
-                st.markdown(f"**{short_label}**")
-                st.markdown('<span class="cred-opt">○ Opcional</span>', unsafe_allow_html=True)
+                st.markdown(f'**{label}**\n\n<span class="cred-opt">○ Opcional</span>', unsafe_allow_html=True)
 
     st.markdown("---")
-    st.subheader("Introducir / actualizar credenciales")
-    st.caption("Solo rellena los campos que quieras actualizar. Los campos vacíos no modifican las credenciales existentes.")
 
-    with st.form("creds_form"):
-        new_anthropic = st.text_input(
-            "Claude AI API Key (ANTHROPIC_API_KEY)",
-            type="password",
-            placeholder="sk-ant-api03-...",
-            help="Obtén tu clave en console.anthropic.com → API Keys",
-        )
-        new_wp_user = st.text_input(
-            "WordPress Username (WP_USERNAME_SITE1)",
-            placeholder="tu-usuario-wordpress",
-            help="Tu nombre de usuario de WordPress (el que usas para iniciar sesión, NO el nombre visible). Lo encuentras en WP Admin → Usuarios → tu perfil → campo 'Nombre de usuario'",
-        )
-        new_wp_pass = st.text_input(
-            "WordPress Application Password (WP_APP_PASSWORD_SITE1)",
-            type="password",
-            placeholder="xxxx xxxx xxxx xxxx xxxx xxxx",
-            help="WordPress Admin → Usuarios → Tu perfil → Application Passwords → Añadir nueva",
-        )
-        new_openai = st.text_input(
-            "OpenAI API Key (opcional)",
-            type="password",
-            placeholder="sk-...",
-            help="Solo necesario para generar imágenes con DALL-E 3",
-        )
-        new_unsplash = st.text_input(
-            "Unsplash Access Key (opcional)",
-            type="password",
-            placeholder="tu-access-key",
-            help="Obtén una clave gratuita en unsplash.com/developers",
-        )
-        new_gsc = st.text_area(
-            "Google Service Account JSON (opcional)",
-            height=100,
-            placeholder='{"type": "service_account", "project_id": "...", ...}',
-            help="JSON completo de tu cuenta de servicio de Google Cloud con acceso a Search Console",
-        )
+    # ── MÉTODO 1: Railway Variables (RECOMENDADO — persiste) ─────────────
+    with st.expander("🏆 Método recomendado: añadir a Railway Variables (persiste siempre)", expanded=not required_ok):
+        st.markdown("""
+Estos son los valores que debes añadir en **Railway → tu servicio → Variables**. Una vez guardados, sobreviven a todos los redespliegues automáticamente.
 
-        submitted = st.form_submit_button("💾 Guardar credenciales", type="primary", use_container_width=True)
+| Variable | Valor a poner |
+|---|---|
+| `WP_USERNAME_SITE1` | Tu usuario de login de WordPress |
+| `WP_APP_PASSWORD_SITE1` | La Application Password de WordPress |
 
-        if submitted:
-            # Cargar existentes para merge
-            _existing = {}
-            _creds_path = DATA_DIR / "credentials.yaml"
-            if _creds_path.exists():
-                import yaml as _yaml
-                with open(_creds_path, encoding="utf-8") as _f:
-                    _existing = _yaml.safe_load(_f) or {}
-
-            _updates = {}
-            if new_anthropic.strip(): _updates["ANTHROPIC_API_KEY"] = new_anthropic.strip()
-            if new_wp_user.strip():   _updates["WP_USERNAME_SITE1"] = new_wp_user.strip()
-            if new_wp_pass.strip():   _updates["WP_APP_PASSWORD_SITE1"] = new_wp_pass.strip()
-            if new_openai.strip():    _updates["OPENAI_API_KEY"] = new_openai.strip()
-            if new_unsplash.strip():  _updates["UNSPLASH_ACCESS_KEY"] = new_unsplash.strip()
-            if new_gsc.strip():       _updates["GOOGLE_SERVICE_ACCOUNT_JSON"] = new_gsc.strip()
-
-            if _updates:
-                _merged = {**_existing, **_updates}
-                save_credentials_file(_merged)
-                st.success(f"✅ {len(_updates)} credencial(es) guardadas correctamente. Activas inmediatamente.")
-                st.rerun()
-            else:
-                st.warning("No has introducido ninguna credencial nueva.")
-
-    st.markdown("---")
-    st.subheader("🔌 Probar conexión WordPress")
-    col_test, col_detect = st.columns(2)
-    with col_test:
-        if st.button("🧪 Probar WordPress ahora", use_container_width=True):
-            import requests as _req
-            cfg = _safe_load_config()
-            sites = cfg.get("sites", [])
-            if not sites:
-                st.error("No hay sitios en config.yaml")
-            else:
-                site = sites[0]
-                url = site.get("url", "").rstrip("/")
-                creds = site.get("wp_app_password", "")
-                user = site.get("wp_user", "")
-                if not creds:
-                    st.error("Falta WordPress Application Password — introdúcela arriba")
-                else:
-                    if ":" in creds:
-                        user, creds = creds.split(":", 1)
-                    with st.spinner(f"Probando conexión con {url}..."):
-                        try:
-                            r = _req.get(f"{url}/wp-json/wp/v2/users/me",
-                                        auth=(user.strip(), creds.strip()), timeout=10)
-                            if r.status_code == 200:
-                                name = r.json().get("name", user)
-                                st.success(f"✅ Conectado como **{name}** en {url}")
-                            elif r.status_code == 401:
-                                st.error("❌ 401 — Usuario o Application Password incorrectos")
-                            elif r.status_code == 403:
-                                st.error(f"❌ 403 — Usuario '{user}' no tiene permisos o es incorrecto. El error 403 (no 401) significa que el usuario que escribiste NO EXISTE en WordPress. Escribe tu nombre de usuario de WordPress real arriba.")
-                            else:
-                                st.error(f"❌ Error {r.status_code}: {r.text[:200]}")
-                        except Exception as ex:
-                            st.error(f"❌ {ex}")
-    with col_detect:
-        if st.button("🔍 Detectar usuarios de WordPress", use_container_width=True):
-            import requests as _req
+**¿Cómo añadir una variable en Railway?**
+1. Ve a railway.app → tu proyecto → tu servicio → pestaña **Variables**
+2. Pulsa **New Variable**
+3. Escribe el nombre y el valor
+4. Pulsa **Add** — Railway redesplegará automáticamente
+""")
+        # Auto-detect WP username
+        if st.button("🔍 Detectar usuarios de WordPress", key="detect_users"):
             cfg = _safe_load_config()
             sites = cfg.get("sites", [])
             if sites:
-                url = sites[0].get("url", "").rstrip("/")
-                with st.spinner("Listando usuarios públicos..."):
+                _url = sites[0].get("url", "").rstrip("/")
+                with st.spinner("Consultando WordPress..."):
                     try:
-                        r = _req.get(f"{url}/wp-json/wp/v2/users", timeout=8)
+                        r = _req.get(f"{_url}/wp-json/wp/v2/users", timeout=8)
                         if r.status_code == 200:
-                            users = r.json()
-                            st.info(f"Usuarios encontrados en {url}:")
-                            for u in users:
-                                st.code(f"Username: {u.get('slug', '?')}  |  Nombre: {u.get('name', '?')}  |  ID: {u.get('id', '?')}")
+                            for u in r.json():
+                                st.success(f"**Username (usa este):** `{u.get('slug','?')}` — Nombre: {u.get('name','?')}")
                         else:
-                            st.warning(f"No se pueden listar usuarios públicamente (código {r.status_code}). Busca tu username en: WordPress Admin → Usuarios → tu perfil → campo 'Nombre de usuario'")
+                            st.info("WordPress no lista usuarios públicamente. Encuentra tu username en: WP Admin → Usuarios → Tu perfil → campo **Nombre de usuario**")
                     except Exception as ex:
                         st.error(str(ex))
 
+    # ── MÉTODO 2: Formulario (sesión actual, se puede perder al redesplegar) ─
+    with st.expander("💾 Guardar credenciales en este servidor (puede perderse sin volumen)", expanded=_volume_ok):
+        st.caption("Rellena solo los campos que quieras actualizar. Los vacíos no se modifican.")
+        with st.form("creds_form"):
+            new_wp_user = st.text_input("WordPress Username (WP_USERNAME_SITE1)",
+                placeholder="tu-usuario-wp (ej: adriaguerrero33)",
+                help="El nombre de usuario que usas para entrar a WordPress Admin, NO el nombre visible")
+            new_wp_pass = st.text_input("WordPress Application Password (WP_APP_PASSWORD_SITE1)",
+                type="password", placeholder="xxxx xxxx xxxx xxxx xxxx xxxx",
+                help="WordPress Admin → Usuarios → Tu perfil → Application Passwords → Añadir nueva")
+            new_anthropic = st.text_input("Claude AI API Key (ANTHROPIC_API_KEY)",
+                type="password", placeholder="sk-ant-api03-...",
+                help="console.anthropic.com → API Keys")
+            new_openai = st.text_input("OpenAI API Key (opcional)", type="password", placeholder="sk-...")
+            new_unsplash = st.text_input("Unsplash Key (opcional)", type="password", placeholder="access-key")
+            new_gsc = st.text_area("Google Service Account JSON (opcional)", height=80,
+                placeholder='{"type": "service_account", ...}')
+
+            submitted = st.form_submit_button("💾 Guardar en servidor", type="primary", use_container_width=True)
+            if submitted:
+                _existing = {}
+                if _creds_path.exists():
+                    import yaml as _yaml
+                    with open(_creds_path, encoding="utf-8") as _f:
+                        _existing = _yaml.safe_load(_f) or {}
+                _updates = {}
+                if new_wp_user.strip():   _updates["WP_USERNAME_SITE1"] = new_wp_user.strip()
+                if new_wp_pass.strip():   _updates["WP_APP_PASSWORD_SITE1"] = new_wp_pass.strip()
+                if new_anthropic.strip(): _updates["ANTHROPIC_API_KEY"] = new_anthropic.strip()
+                if new_openai.strip():    _updates["OPENAI_API_KEY"] = new_openai.strip()
+                if new_unsplash.strip():  _updates["UNSPLASH_ACCESS_KEY"] = new_unsplash.strip()
+                if new_gsc.strip():       _updates["GOOGLE_SERVICE_ACCOUNT_JSON"] = new_gsc.strip()
+                if _updates:
+                    save_credentials_file({**_existing, **_updates})
+                    st.success(f"✅ {len(_updates)} credencial(es) guardadas. Activas ahora mismo.")
+                    st.rerun()
+                else:
+                    st.warning("No introdujiste ningún valor nuevo.")
+
+    # ── Test WordPress ───────────────────────────────────────────────────
     st.markdown("---")
-    with st.expander("📖 ¿Dónde encuentro cada credencial? (guía paso a paso)"):
-        st.markdown("""
-**Claude AI API Key**
-1. Ve a [console.anthropic.com](https://console.anthropic.com)
-2. API Keys → Create Key → Copia la clave (empieza por `sk-ant-`)
+    st.subheader("🧪 Probar conexión WordPress")
+    col_t1, col_t2 = st.columns(2)
+    with col_t1:
+        _wp_user_now = _os.environ.get("WP_USERNAME_SITE1", "")
+        _wp_pass_now = _os.environ.get("WP_APP_PASSWORD_SITE1", "")
+        _wp_url_now  = (_safe_load_config().get("sites") or [{}])[0].get("url", "https://resenaspremium.com").rstrip("/")
+        if _wp_user_now and _wp_pass_now:
+            st.caption(f"Usuario: `{_wp_user_now}` | Sitio: `{_wp_url_now}`")
+            if st.button("🔌 Probar ahora", type="primary", use_container_width=True):
+                with st.spinner("Conectando..."):
+                    try:
+                        r = _req.get(f"{_wp_url_now}/wp-json/wp/v2/users/me",
+                                     auth=(_wp_user_now, _wp_pass_now), timeout=10)
+                        if r.status_code == 200:
+                            st.success(f"✅ Conectado como **{r.json().get('name', _wp_user_now)}**")
+                        elif r.status_code == 401:
+                            st.error("❌ 401 — Application Password incorrecta")
+                        elif r.status_code == 403:
+                            st.error(f"❌ 403 — El usuario `{_wp_user_now}` no existe en WordPress. Revisa el username.")
+                        else:
+                            st.error(f"❌ {r.status_code}: {r.text[:150]}")
+                    except Exception as ex:
+                        st.error(str(ex))
+        else:
+            st.warning("Configura `WP_USERNAME_SITE1` y `WP_APP_PASSWORD_SITE1` primero.")
+    with col_t2:
+        st.caption("Estado actual de WP en entorno:")
+        st.markdown(f"Usuario: {'`' + _wp_user_now + '`' if _wp_user_now else '**❌ no configurado**'}")
+        st.markdown(f"Password: {'✅ presente (' + str(len(_wp_pass_now)) + ' chars)' if _wp_pass_now else '**❌ no configurada**'}")
 
----
-
-**WordPress Application Password**
-1. Entra en tu WordPress Admin → Usuarios → Tu perfil
-2. Baja hasta **Application Passwords**
-3. Escribe un nombre (ej: `EXPERTOSEO`) → pulsa **Añadir nueva contraseña de aplicación**
-4. Copia la contraseña generada (formato: `xxxx xxxx xxxx xxxx xxxx xxxx`)
-
----
-
-**Google Service Account JSON** (para ver tus rankings automáticamente)
-1. Ve a [console.cloud.google.com](https://console.cloud.google.com)
-2. Crea un proyecto → **Habilita la API** "Google Search Console API"
-3. IAM y administración → Cuentas de servicio → Crear → Descarga la clave JSON
-4. En [Google Search Console](https://search.google.com/search-console) → Configuración → Usuarios y permisos → Añade el email de la cuenta de servicio como **Propietario**
-5. Pega el contenido completo del archivo JSON en el campo de arriba
-        """)
-
-
-# ─────────────────────────────────────────────
-# PÁGINA: CHECKLIST SEO
-# ─────────────────────────────────────────────
-elif page == "✅ Checklist SEO":
-    st.title("✅ Checklist SEO — Guía paso a paso")
-    st.markdown("Marca cada tarea cuando la hayas completado. El asistente analizará si está bien hecha y te dará feedback.")
+# ── Las páginas no activas (Checklist, Estado APIs) siguen en el código pero
+#    no están en el nav — se eliminan del menú para simplificar la interfaz.
+if False:
 
     # ── Definición de todas las tareas SEO ──────────────────────────────
     CHECKLIST_ITEMS = {
