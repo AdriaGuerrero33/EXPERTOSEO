@@ -48,6 +48,7 @@ class ArticleGenerator:
         competitors_summary: str = "",
         trends_summary: str = "",
         current_position: str = "No disponible",
+        max_retries: int = 2,
     ) -> ArticleData:
         """
         Genera un artículo SEO completo para la keyword dada.
@@ -83,36 +84,62 @@ class ArticleGenerator:
         for placeholder, value in replacements.items():
             prompt = prompt.replace(placeholder, str(value))
 
-        message = self.client.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        last_error = None
+        for attempt in range(1, max_retries + 2):
+            try:
+                # En reintentos, añadir instrucción explícita de responder solo JSON
+                retry_note = "" if attempt == 1 else (
+                    "\n\n⚠️ IMPORTANTE: Responde ÚNICAMENTE con el bloque ```json ... ```. "
+                    "Nada más. Ni texto previo ni explicaciones."
+                )
+                message = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=self.max_tokens,
+                    messages=[{"role": "user", "content": prompt + retry_note}],
+                )
+                response_text = message.content[0].text
+                data = self._parse_response(response_text, keyword)
+                logger.info(
+                    f"Artículo generado: '{data.seo_title}' (~{data.word_count_estimate} palabras)"
+                )
+                return data
+            except (ValueError, json.JSONDecodeError) as e:
+                last_error = e
+                logger.warning(f"Intento {attempt} fallido al parsear JSON: {e}")
 
-        response_text = message.content[0].text
-        data = self._parse_response(response_text, keyword)
-        logger.info(
-            f"Artículo generado: '{data.seo_title}' (~{data.word_count_estimate} palabras)"
+        raise ValueError(
+            f"Claude no devolvió JSON válido tras {max_retries + 1} intentos. "
+            f"Último error: {last_error}. Prueba con otra keyword."
         )
-        return data
 
     def _parse_response(self, response_text: str, keyword: str) -> ArticleData:
         """Extrae y valida el JSON de la respuesta de Claude."""
-        # Buscar bloque JSON en la respuesta
+        # Si Claude rechazó la keyword (respuesta muy corta o sin JSON)
+        if len(response_text.strip()) < 100 and "{" not in response_text:
+            raise ValueError(
+                f"Claude no generó contenido para esta keyword. "
+                f"Respuesta: {response_text[:200]}"
+            )
+
+        # 1. Bloque ```json ... ```
         json_match = re.search(r"```json\s*([\s\S]*?)\s*```", response_text)
         if json_match:
             json_str = json_match.group(1)
         else:
-            # Intentar parsear toda la respuesta como JSON
-            json_str = response_text.strip()
+            # 2. Bloque ``` ... ``` genérico
+            code_match = re.search(r"```\s*([\s\S]*?)\s*```", response_text)
+            json_str = code_match.group(1) if code_match else response_text.strip()
 
         try:
             data = json.loads(json_str)
         except json.JSONDecodeError:
-            # Último recurso: buscar el primer { ... } de nivel superior
+            # 3. Buscar el objeto JSON más grande en la respuesta
             brace_match = re.search(r"\{[\s\S]+\}", response_text)
             if not brace_match:
-                raise ValueError("No se pudo extraer JSON válido de la respuesta de Claude")
+                raise ValueError(
+                    "Claude no devolvió JSON. Puede que la keyword sea inapropiada o "
+                    "que haya un problema con el template."
+                )
             data = json.loads(brace_match.group(0))
 
         # Validar y limpiar campos obligatorios

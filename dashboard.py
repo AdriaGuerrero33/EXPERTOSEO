@@ -1225,8 +1225,9 @@ Mientras tanto, añade las credenciales de WordPress directamente en **Railway V
     # ── Estado actual ──────────────────────────────────────────────────────
     CREDS_DEF = [
         ("ANTHROPIC_API_KEY",           "Claude AI",            True),
-        ("WP_USERNAME_SITE1",           "WP Usuario",           True),
-        ("WP_APP_PASSWORD_SITE1",       "WP Contraseña App",    True),
+        ("EXPERTOSEO_SECRET_TOKEN",     "WP Token (auth)",      True),
+        ("WP_USERNAME_SITE1",           "WP Usuario",           False),
+        ("WP_APP_PASSWORD_SITE1",       "WP Contraseña App",    False),
         ("OPENAI_API_KEY",              "OpenAI",               False),
         ("UNSPLASH_ACCESS_KEY",         "Unsplash",             False),
         ("GOOGLE_SERVICE_ACCOUNT_JSON", "Google GSC",           False),
@@ -1285,12 +1286,15 @@ Estos son los valores que debes añadir en **Railway → tu servicio → Variabl
     with st.expander("💾 Guardar credenciales en este servidor (puede perderse sin volumen)", expanded=_volume_ok):
         st.caption("Rellena solo los campos que quieras actualizar. Los vacíos no se modifican.")
         with st.form("creds_form"):
-            new_wp_user = st.text_input("WordPress Username (WP_USERNAME_SITE1)",
-                placeholder="tu-usuario-wp (ej: adriaguerrero33)",
-                help="El nombre de usuario que usas para entrar a WordPress Admin, NO el nombre visible")
-            new_wp_pass = st.text_input("WordPress Application Password (WP_APP_PASSWORD_SITE1)",
+            new_token = st.text_input("WordPress Token Secreto (EXPERTOSEO_SECRET_TOKEN) ← obligatorio",
+                type="password", placeholder="expertoseo-secret-2025-xxxxx",
+                help="El mismo valor que pusiste en el Code Snippet de WordPress")
+            new_wp_user = st.text_input("WordPress Username (WP_USERNAME_SITE1) — opcional",
+                placeholder="_adriaguerrero",
+                help="Solo necesario si no usas el token secreto")
+            new_wp_pass = st.text_input("WordPress Application Password (WP_APP_PASSWORD_SITE1) — opcional",
                 type="password", placeholder="xxxx xxxx xxxx xxxx xxxx xxxx",
-                help="WordPress Admin → Usuarios → Tu perfil → Application Passwords → Añadir nueva")
+                help="Solo necesario si no usas el token secreto")
             new_anthropic = st.text_input("Claude AI API Key (ANTHROPIC_API_KEY)",
                 type="password", placeholder="sk-ant-api03-...",
                 help="console.anthropic.com → API Keys")
@@ -1307,6 +1311,7 @@ Estos son los valores que debes añadir en **Railway → tu servicio → Variabl
                     with open(_creds_path, encoding="utf-8") as _f:
                         _existing = _yaml.safe_load(_f) or {}
                 _updates = {}
+                if new_token.strip():     _updates["EXPERTOSEO_SECRET_TOKEN"] = new_token.strip()
                 if new_wp_user.strip():   _updates["WP_USERNAME_SITE1"] = new_wp_user.strip()
                 if new_wp_pass.strip():   _updates["WP_APP_PASSWORD_SITE1"] = new_wp_pass.strip()
                 if new_anthropic.strip(): _updates["ANTHROPIC_API_KEY"] = new_anthropic.strip()
