@@ -18,7 +18,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent))
 
 try:
-    from expertoseo.utils import load_env, load_config, load_json, save_json, DATA_DIR
+    from expertoseo.utils import load_env, load_config, load_json, save_json, save_credentials_file, DATA_DIR
     load_env()
     _BOOT_OK = True
     _BOOT_ERR = None
@@ -33,36 +33,107 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# CSS personalizado
+# ── Apple-quality CSS (macOS Dark Mode) ──────────────────────────────────────
 st.markdown("""
 <style>
-    .metric-card {
-        background: #1e1e2e;
-        border-radius: 12px;
-        padding: 1.2rem;
-        border: 1px solid #313244;
-        text-align: center;
-    }
-    .metric-value { font-size: 2rem; font-weight: 700; color: #cba6f7; }
-    .metric-label { font-size: 0.85rem; color: #a6adc8; margin-top: 4px; }
-    .score-green  { color: #a6e3a1; font-weight: 700; }
-    .score-yellow { color: #f9e2af; font-weight: 700; }
-    .score-red    { color: #f38ba8; font-weight: 700; }
-    .status-ok    { color: #a6e3a1; }
-    .status-draft { color: #f9e2af; }
-    .status-error { color: #f38ba8; }
-    .log-box {
-        background: #11111b;
-        border: 1px solid #313244;
-        border-radius: 8px;
-        padding: 1rem;
-        font-family: monospace;
-        font-size: 0.8rem;
-        color: #cdd6f4;
-        max-height: 400px;
-        overflow-y: auto;
-        white-space: pre-wrap;
-    }
+/* System font stack */
+*, body, [class*="css"] {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif !important;
+}
+
+/* Page background */
+[data-testid="stAppViewContainer"] > .main { background: #161618 !important; }
+[data-testid="stSidebar"] {
+    background: #1c1c1e !important;
+    border-right: 1px solid rgba(255,255,255,0.08) !important;
+}
+.block-container { padding-top: 1.8rem !important; max-width: 1080px !important; }
+
+/* KPI cards */
+.kpi-card {
+    background: #1c1c1e;
+    border-radius: 16px;
+    padding: 1.4rem 1.2rem;
+    border: 1px solid rgba(255,255,255,0.08);
+    text-align: center;
+    height: 100%;
+}
+.kpi-val  { font-size: 2.2rem; font-weight: 700; color: #fff; line-height: 1.1; }
+.kpi-lbl  { font-size: 0.72rem; color: rgba(255,255,255,0.4); margin-top: 6px;
+             letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* Deprecated aliases kept for compat */
+.metric-card  { background:#1c1c1e; border-radius:16px; padding:1.4rem 1.2rem;
+                border:1px solid rgba(255,255,255,0.08); text-align:center; }
+.metric-value { font-size:2.2rem; font-weight:700; color:#fff; }
+.metric-label { font-size:0.72rem; color:rgba(255,255,255,0.4); margin-top:6px;
+                letter-spacing:0.06em; text-transform:uppercase; }
+
+/* Score / status colors */
+.score-green, .s-green   { color: #30d158; font-weight: 600; }
+.score-yellow,.s-yellow  { color: #ff9f0a; font-weight: 600; }
+.score-red,   .s-red     { color: #ff453a; font-weight: 600; }
+.status-ok    { color: #30d158; }
+.status-draft { color: #ff9f0a; }
+.status-error { color: #ff453a; }
+
+/* Badges */
+.badge-ok    { background:rgba(48,209,88,0.15);  color:#30d158; border-radius:20px;
+               padding:2px 10px; font-size:0.78rem; font-weight:600; }
+.badge-draft { background:rgba(255,159,10,0.15); color:#ff9f0a; border-radius:20px;
+               padding:2px 10px; font-size:0.78rem; font-weight:600; }
+.badge-error { background:rgba(255,69,58,0.15);  color:#ff453a; border-radius:20px;
+               padding:2px 10px; font-size:0.78rem; font-weight:600; }
+
+/* Credential status */
+.cred-ok  { display:inline-block; background:rgba(48,209,88,0.12);  color:#30d158;
+             border-radius:8px; padding:4px 12px; font-size:0.82rem; font-weight:600; }
+.cred-bad { display:inline-block; background:rgba(255,69,58,0.12);  color:#ff453a;
+             border-radius:8px; padding:4px 12px; font-size:0.82rem; font-weight:600; }
+.cred-opt { display:inline-block; background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.4);
+             border-radius:8px; padding:4px 12px; font-size:0.82rem; font-weight:600; }
+
+/* Tables */
+.t-wrap { border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); }
+table { width:100%; border-collapse:collapse; }
+thead tr { background:rgba(255,255,255,0.04); }
+thead th { padding:10px 14px; text-align:left; font-size:0.72rem; color:rgba(255,255,255,0.38);
+           font-weight:600; text-transform:uppercase; letter-spacing:0.06em;
+           border-bottom:1px solid rgba(255,255,255,0.08); }
+tbody tr { border-bottom:1px solid rgba(255,255,255,0.05); }
+tbody tr:last-child { border-bottom:none; }
+tbody td { padding:10px 14px; font-size:0.88rem; color:rgba(255,255,255,0.82); }
+a { color:#0a84ff; text-decoration:none; }
+a:hover { text-decoration:underline; }
+
+/* Log box */
+.log-box {
+    background: #0d0d0f;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    font-family: "SF Mono","Menlo","Monaco","Consolas",monospace !important;
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.65);
+    max-height: 380px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    line-height: 1.65;
+}
+
+/* Info card */
+.info-card {
+    background: rgba(10,132,255,0.08);
+    border: 1px solid rgba(10,132,255,0.2);
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    color: rgba(255,255,255,0.85);
+    font-size: 0.88rem;
+    line-height: 1.55;
+}
+
+/* Hide Streamlit chrome */
+#MainMenu, footer { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -142,7 +213,8 @@ with st.sidebar:
     st.markdown("---")
     page = st.radio(
         "Navegación",
-        ["🏠 Inicio", "📝 Artículos", "📊 Rankings", "🚀 Publicar", "🔑 Keywords", "💬 Asistente", "✅ Checklist SEO", "🔌 Estado APIs", "⚙️ Configuración"],
+        ["🏠 Inicio", "📝 Artículos", "📊 Rankings", "🚀 Publicar", "🔑 Keywords",
+         "💬 Asistente", "🗝️ Credenciales", "✅ Checklist SEO", "🔌 Estado APIs", "⚙️ Configuración"],
         label_visibility="collapsed",
     )
     st.markdown("---")
@@ -377,19 +449,50 @@ elif page == "📊 Rankings":
 
     rankings = _get_rankings_latest()
     prev = _get_prev_rankings()
+    history = load_json("rankings.json")
 
     if not rankings:
-        st.info("No hay datos de rankings todavía.\n\nConfigura Google Search Console en `.env` y pulsa **Actualizar desde GSC**.")
+        st.markdown("""
+<div class="info-card">
+<strong>📊 Aún no hay datos de rankings.</strong><br><br>
+Para ver tus posiciones en Google necesitas conectar <strong>Google Search Console</strong>.<br>
+Ve a <strong>🗝️ Credenciales</strong> e introduce tu JSON de cuenta de servicio de Google, luego pulsa <em>Actualizar desde GSC</em>.
+</div>""", unsafe_allow_html=True)
+        st.markdown("")
+        # Mostrar artículos publicados como alternativa útil
+        published = load_json("published.json")
+        if isinstance(published, list) and published:
+            st.subheader("📝 Artículos publicados (URLs para posicionar)")
+            st.caption("Estos son los artículos que ya están indexados en Google:")
+            for p in published[:10]:
+                link = p.get("link", "")
+                title = p.get("title") or p.get("keyword") or "Sin título"
+                kw = p.get("keyword", "")
+                score = p.get("seo_score", "-")
+                date_str = (p.get("date") or p.get("timestamp", ""))[:10]
+                score_cls = "s-green" if isinstance(score, (int,float)) and score >= 70 else "s-yellow" if isinstance(score, (int,float)) and score >= 50 else "s-red"
+                link_html = f'<a href="{link}" target="_blank">{title[:60]}</a>' if link else title[:60]
+                st.markdown(f'<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06)">{link_html} &nbsp;<span class="{score_cls}">{score}/100</span> <span style="color:rgba(255,255,255,0.3);font-size:0.8rem">— {date_str}</span></div>', unsafe_allow_html=True)
         st.stop()
 
-    history = load_json("rankings.json")
     if isinstance(history, dict) and history:
         last_date = max(history.keys())
-        st.caption(f"Última actualización: {last_date} — {len(rankings)} keywords rastreadas")
+        # KPIs de GSC
+        total_clicks = sum(r.get("clicks", 0) or 0 for r in rankings)
+        total_impressions = sum(r.get("impressions", 0) or 0 for r in rankings)
+        avg_pos = sum(r.get("position", 0) for r in rankings) / len(rankings) if rankings else 0
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: st.markdown(f'<div class="kpi-card"><div class="kpi-val">{len(rankings)}</div><div class="kpi-lbl">Keywords rastreadas</div></div>', unsafe_allow_html=True)
+        with c2: st.markdown(f'<div class="kpi-card"><div class="kpi-val">{total_clicks:,}</div><div class="kpi-lbl">Clics totales</div></div>', unsafe_allow_html=True)
+        with c3: st.markdown(f'<div class="kpi-card"><div class="kpi-val">{total_impressions:,}</div><div class="kpi-lbl">Impresiones</div></div>', unsafe_allow_html=True)
+        with c4: st.markdown(f'<div class="kpi-card"><div class="kpi-val">{avg_pos:.1f}</div><div class="kpi-lbl">Posición media</div></div>', unsafe_allow_html=True)
+        st.markdown("")
+        st.caption(f"Última actualización: {last_date}")
 
     top3   = [r for r in rankings if r.get("position", 99) <= 3]
     top10  = [r for r in rankings if 3 < r.get("position", 99) <= 10]
     top20  = [r for r in rankings if 10 < r.get("position", 99) <= 20]
+    top50  = [r for r in rankings if 20 < r.get("position", 99) <= 50]
 
     def render_ranking_table(rows, title, color):
         if not rows:
@@ -428,13 +531,32 @@ elif page == "📊 Rankings":
         st.markdown("")
 
     if top3:
-        render_ranking_table(top3, "🥇 TOP 1-3", "#a6e3a1")
+        render_ranking_table(top3, "🥇 TOP 1-3", "#30d158")
     if top10:
-        render_ranking_table(top10, "🎯 TOP 4-10", "#f9e2af")
+        render_ranking_table(top10, "🎯 TOP 4-10", "#ff9f0a")
     if top20:
-        render_ranking_table(top20[:20], "📈 TOP 11-20", "#89dceb")
+        render_ranking_table(top20[:20], "📈 TOP 11-20", "#0a84ff")
+
     if not top3 and not top10 and not top20:
-        st.warning("No hay keywords en TOP 20 todavía. Sigue publicando contenido.")
+        st.markdown("""
+<div class="info-card">
+<strong>📈 Aún no tienes keywords en TOP 20.</strong><br><br>
+Es normal al principio — Google tarda semanas en posicionar contenido nuevo.
+Mientras tanto, aquí están tus keywords con más impresiones (mayor potencial):
+</div>""", unsafe_allow_html=True)
+        st.markdown("")
+
+    # Mostrar TOP 21-50 siempre que existan (oportunidades reales de mejora)
+    if top50:
+        render_ranking_table(top50[:25], "🚀 TOP 21-50 — Oportunidades (optimiza estos artículos)", "#bf5af2")
+
+    # Tabla completa paginada
+    if rankings:
+        with st.expander(f"📋 Ver todas las keywords ({len(rankings)} en total)"):
+            render_ranking_table(
+                sorted(rankings, key=lambda r: r.get("position", 999))[:50],
+                "", "#ffffff"
+            )
 
 
 # ─────────────────────────────────────────────
@@ -1026,6 +1148,134 @@ elif page == "⚙️ Configuración":
                 st.code(env_example_path.read_text(), language="bash")
 
         st.info("💡 En Railway, las variables de entorno se configuran en el panel de **Variables** — no necesitas el archivo .env.")
+
+
+# ─────────────────────────────────────────────
+# PÁGINA: CREDENCIALES
+# ─────────────────────────────────────────────
+elif page == "🗝️ Credenciales":
+    import os as _os
+
+    st.title("🗝️ Credenciales y API Keys")
+    st.markdown("Introduce tus claves de API aquí. Se guardan de forma segura en el servidor y permanecen entre reinicios.")
+
+    CREDS_DEF = [
+        ("ANTHROPIC_API_KEY",        "Claude AI API Key",                              True),
+        ("WP_APP_PASSWORD_SITE1",    "WordPress Application Password",                 True),
+        ("OPENAI_API_KEY",           "OpenAI API Key (opcional — imágenes DALL-E)",    False),
+        ("UNSPLASH_ACCESS_KEY",      "Unsplash API Key (opcional — imágenes temáticas)", False),
+        ("GOOGLE_SERVICE_ACCOUNT_JSON", "Google Service Account JSON (opcional — rankings GSC)", False),
+    ]
+
+    required_ok = all(_os.environ.get(k) for k, _, req in CREDS_DEF if req)
+    if required_ok:
+        st.success("✅ Todas las credenciales obligatorias están configuradas.")
+    else:
+        st.error("⚠️ Faltan credenciales obligatorias. Introdúcelas abajo y pulsa Guardar.")
+
+    st.markdown("")
+    # Status row
+    cols_status = st.columns(len(CREDS_DEF))
+    for i, (key, label, required) in enumerate(CREDS_DEF):
+        with cols_status[i]:
+            val = _os.environ.get(key, "")
+            short_label = label.split("(")[0].strip()
+            if val:
+                st.markdown(f"**{short_label}**")
+                st.markdown('<span class="cred-ok">✓ Configurada</span>', unsafe_allow_html=True)
+            elif required:
+                st.markdown(f"**{short_label}**")
+                st.markdown('<span class="cred-bad">✗ Obligatoria</span>', unsafe_allow_html=True)
+            else:
+                st.markdown(f"**{short_label}**")
+                st.markdown('<span class="cred-opt">○ Opcional</span>', unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.subheader("Introducir / actualizar credenciales")
+    st.caption("Solo rellena los campos que quieras actualizar. Los campos vacíos no modifican las credenciales existentes.")
+
+    with st.form("creds_form"):
+        new_anthropic = st.text_input(
+            "Claude AI API Key (ANTHROPIC_API_KEY)",
+            type="password",
+            placeholder="sk-ant-api03-...",
+            help="Obtén tu clave en console.anthropic.com → API Keys",
+        )
+        new_wp_pass = st.text_input(
+            "WordPress Application Password (WP_APP_PASSWORD_SITE1)",
+            type="password",
+            placeholder="xxxx xxxx xxxx xxxx xxxx xxxx",
+            help="WordPress Admin → Usuarios → Tu perfil → Application Passwords → Añadir nueva",
+        )
+        new_openai = st.text_input(
+            "OpenAI API Key (opcional)",
+            type="password",
+            placeholder="sk-...",
+            help="Solo necesario para generar imágenes con DALL-E 3",
+        )
+        new_unsplash = st.text_input(
+            "Unsplash Access Key (opcional)",
+            type="password",
+            placeholder="tu-access-key",
+            help="Obtén una clave gratuita en unsplash.com/developers",
+        )
+        new_gsc = st.text_area(
+            "Google Service Account JSON (opcional)",
+            height=100,
+            placeholder='{"type": "service_account", "project_id": "...", ...}',
+            help="JSON completo de tu cuenta de servicio de Google Cloud con acceso a Search Console",
+        )
+
+        submitted = st.form_submit_button("💾 Guardar credenciales", type="primary", use_container_width=True)
+
+        if submitted:
+            # Cargar existentes para merge
+            _existing = {}
+            _creds_path = DATA_DIR / "credentials.yaml"
+            if _creds_path.exists():
+                import yaml as _yaml
+                with open(_creds_path, encoding="utf-8") as _f:
+                    _existing = _yaml.safe_load(_f) or {}
+
+            _updates = {}
+            if new_anthropic.strip(): _updates["ANTHROPIC_API_KEY"] = new_anthropic.strip()
+            if new_wp_pass.strip():   _updates["WP_APP_PASSWORD_SITE1"] = new_wp_pass.strip()
+            if new_openai.strip():    _updates["OPENAI_API_KEY"] = new_openai.strip()
+            if new_unsplash.strip():  _updates["UNSPLASH_ACCESS_KEY"] = new_unsplash.strip()
+            if new_gsc.strip():       _updates["GOOGLE_SERVICE_ACCOUNT_JSON"] = new_gsc.strip()
+
+            if _updates:
+                _merged = {**_existing, **_updates}
+                save_credentials_file(_merged)
+                st.success(f"✅ {len(_updates)} credencial(es) guardadas correctamente. Activas inmediatamente.")
+                st.rerun()
+            else:
+                st.warning("No has introducido ninguna credencial nueva.")
+
+    st.markdown("---")
+    with st.expander("📖 ¿Dónde encuentro cada credencial? (guía paso a paso)"):
+        st.markdown("""
+**Claude AI API Key**
+1. Ve a [console.anthropic.com](https://console.anthropic.com)
+2. API Keys → Create Key → Copia la clave (empieza por `sk-ant-`)
+
+---
+
+**WordPress Application Password**
+1. Entra en tu WordPress Admin → Usuarios → Tu perfil
+2. Baja hasta **Application Passwords**
+3. Escribe un nombre (ej: `EXPERTOSEO`) → pulsa **Añadir nueva contraseña de aplicación**
+4. Copia la contraseña generada (formato: `xxxx xxxx xxxx xxxx xxxx xxxx`)
+
+---
+
+**Google Service Account JSON** (para ver tus rankings automáticamente)
+1. Ve a [console.cloud.google.com](https://console.cloud.google.com)
+2. Crea un proyecto → **Habilita la API** "Google Search Console API"
+3. IAM y administración → Cuentas de servicio → Crear → Descarga la clave JSON
+4. En [Google Search Console](https://search.google.com/search-console) → Configuración → Usuarios y permisos → Añade el email de la cuenta de servicio como **Propietario**
+5. Pega el contenido completo del archivo JSON en el campo de arriba
+        """)
 
 
 # ─────────────────────────────────────────────

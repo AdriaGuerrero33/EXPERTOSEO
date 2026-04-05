@@ -85,16 +85,44 @@ class SEOAssistant:
                 score = p.get("seo_score", "-")
                 lines.append(f"  - '{p.get('title', 'Sin título')}' | Score: {score}/100 | {p.get('date', '')[:10]}")
 
-        # Rankings más recientes
+        # Rankings y datos GSC más recientes
         rankings_history = load_json("rankings.json")
         if isinstance(rankings_history, dict) and rankings_history:
             latest_date = max(rankings_history.keys())
             latest = rankings_history[latest_date]
+
+            total_clicks = sum(r.get("clicks", 0) or 0 for r in latest)
+            total_impressions = sum(r.get("impressions", 0) or 0 for r in latest)
+            avg_pos = sum(r.get("position", 0) for r in latest) / len(latest) if latest else 0
+
+            lines.append(f"\n=== Datos Google Search Console ({latest_date}) ===")
+            lines.append(f"Keywords rastreadas: {len(latest)}")
+            lines.append(f"Clics totales: {total_clicks} | Impresiones: {total_impressions} | Posición media: {avg_pos:.1f}")
+
+            top3  = [r for r in latest if r.get("position", 99) <= 3]
             top10 = [r for r in latest if r.get("position", 99) <= 10]
+            top20 = [r for r in latest if r.get("position", 99) <= 20]
+            top50 = [r for r in latest if 20 < r.get("position", 99) <= 50]
+
+            if top3:
+                lines.append(f"\nKeywords TOP 1-3 ({len(top3)}):")
+                for r in top3[:10]:
+                    lines.append(f"  - '{r['keyword']}' → pos {r['position']} | {r.get('clicks',0)} clicks | {r.get('impressions',0)} impresiones")
             if top10:
-                lines.append(f"\nKeywords en TOP 10 ({latest_date}): {len(top10)}")
-                for r in top10[:5]:
-                    lines.append(f"  - '{r['keyword']}' → posición {r['position']}")
+                lines.append(f"\nKeywords TOP 4-10 ({len(top10)}):")
+                for r in top10[:10]:
+                    lines.append(f"  - '{r['keyword']}' → pos {r['position']} | {r.get('clicks',0)} clicks | {r.get('impressions',0)} impresiones")
+            if top20:
+                lines.append(f"\nKeywords TOP 11-20 (oportunidades rápidas) ({len(top20)}):")
+                for r in top20[:10]:
+                    lines.append(f"  - '{r['keyword']}' → pos {r['position']} | {r.get('impressions',0)} impresiones")
+            if top50:
+                lines.append(f"\nKeywords TOP 21-50 (potencial a medio plazo) ({len(top50)} keywords)")
+                # Ordenar por impresiones descendente para priorizar
+                for r in sorted(top50, key=lambda x: x.get("impressions", 0), reverse=True)[:5]:
+                    lines.append(f"  - '{r['keyword']}' → pos {r['position']} | {r.get('impressions',0)} impresiones")
+        else:
+            lines.append("\nGSC no conectado todavía — anima al usuario a configurar las credenciales para ver sus rankings.")
 
         if not lines:
             lines.append("No hay datos disponibles aún. Configura los sitios y ejecuta los primeros análisis.")
