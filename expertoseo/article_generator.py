@@ -68,6 +68,14 @@ class ArticleGenerator:
         template = load_template("article_prompt.md")
         min_words = self.seo_config.get("min_words", 1500)
         max_words = self.seo_config.get("max_words", 2500)
+        use_emoji = self.config.get("ai", {}).get("use_emoji_title", True)
+        emoji_instruction = (
+            "IMPORTANTE: Incluye 1-2 emojis relevantes en el campo 'title' y 'seo_title' "
+            "(ej: '🏆 Mejores reseñas de...', '⭐ Guía completa de...'). "
+            "Esto mejora el CTR en móvil."
+            if use_emoji else
+            "No uses emojis en el título."
+        )
 
         # Usar reemplazos manuales para evitar que el JSON del template
         # sea interpretado como placeholders de str.format()
@@ -79,6 +87,7 @@ class ArticleGenerator:
             "{competitors_summary}": competitors_summary or "No analizado",
             "{trends_summary}": trends_summary or "No disponible",
             "{current_position}": current_position,
+            "{emoji_instruction}": emoji_instruction,
         }
         prompt = template
         for placeholder, value in replacements.items():

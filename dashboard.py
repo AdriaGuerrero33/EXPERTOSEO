@@ -211,10 +211,20 @@ def _get_prev_rankings():
 with st.sidebar:
     st.markdown("## 🚀 EXPERTOSEO")
     st.markdown("---")
+    import os as _os_nav
+    _nav_required = ["ANTHROPIC_API_KEY", "EXPERTOSEO_SECRET_TOKEN"]
+    _nav_creds_ok = all(_os_nav.environ.get(k) for k in _nav_required)
+    _nav_pages = ["🏠 Inicio", "📝 Artículos", "📊 Rankings", "🚀 Publicar",
+                  "🔑 Keywords", "💬 Asistente", "⚙️ Configuración"]
+    if not _nav_creds_ok:
+        _nav_pages.insert(-1, "🗝️ Credenciales")  # solo aparece si faltan credenciales
+    else:
+        # Botón pequeño de acceso a credenciales en el footer del sidebar
+        _nav_pages.append("🗝️ Credenciales")  # siempre disponible, al final
+
     page = st.radio(
         "Navegación",
-        ["🏠 Inicio", "📝 Artículos", "📊 Rankings", "🚀 Publicar",
-         "🔑 Keywords", "💬 Asistente", "🗝️ Credenciales", "⚙️ Configuración"],
+        _nav_pages,
         label_visibility="collapsed",
     )
 
@@ -568,185 +578,424 @@ Mientras tanto, aquí están tus keywords con más impresiones (mayor potencial)
 # PÁGINA: PUBLICAR
 # ─────────────────────────────────────────────
 elif page == "🚀 Publicar":
-    st.title("🚀 Lanzar Agente de Publicación")
-    st.markdown("El agente genera el artículo, crea la portada, optimiza el SEO y lo publica en WordPress — todo automáticamente.")
+    st.title("🚀 Publicar")
 
-    config = _load_config_safe()
-    sites = config.get("sites", [])
-    site_options = {s.get("name", s.get("slug")): s.get("slug") for s in sites}
+    _pub_tab1, _pub_tab2, _pub_tab3, _pub_tab4 = st.tabs(
+        ["📤 Publicar artículo", "📅 Calendario", "⚙️ RankMath SEO", "🔍 SEO Interno"]
+    )
 
-    col1, col2 = st.columns(2)
-    with col1:
-        keyword_input = st.text_input(
-            "Keyword objetivo (opcional)",
-            placeholder="Dejar vacío para usar la siguiente de la cola",
-            help="Si lo dejas vacío, se usará la próxima keyword de la cola o de GSC/Trends."
-        )
-    with col2:
-        site_name = st.selectbox("Sitio", list(site_options.keys()) if site_options else ["Sin sitios configurados"])
-        site_slug = site_options.get(site_name)
+    # ─── TAB 1: PUBLICAR ───────────────────────────────────────────────────────
+    with _pub_tab1:
+        st.markdown("El agente genera el artículo, crea la portada, optimiza el SEO y lo publica en WordPress — todo automáticamente.")
 
-    col3, col4 = st.columns(2)
-    with col3:
-        as_draft = st.toggle("Publicar como borrador", value=False, help="Guarda como borrador en WordPress para revisar antes de publicar.")
-    with col4:
-        st.markdown("")
+        config = _load_config_safe()
+        sites = config.get("sites", [])
+        site_options = {s.get("name", s.get("slug")): s.get("slug") for s in sites}
 
-    # ── Portada personalizada ─────────────────────────────────────────────
-    st.markdown("**Portada** (opcional — si no subes ninguna, el agente genera una automáticamente)")
-    col_img1, col_img2 = st.columns([2, 1])
-    with col_img1:
-        custom_image = st.file_uploader(
-            "Sube tu propia portada",
-            type=["jpg", "jpeg", "png", "webp"],
-            help="Si subes una imagen, se usará como portada en vez de la generada automáticamente",
-            label_visibility="collapsed",
-        )
-    with col_img2:
+        col1, col2 = st.columns(2)
+        with col1:
+            keyword_input = st.text_input(
+                "Keyword objetivo (opcional)",
+                placeholder="💡 Dejar vacío = próxima de la cola automáticamente",
+                help="Puedes incluir emojis en la keyword: 🏆 mejor reseña, 🌟 top productos, etc.",
+            )
+        with col2:
+            site_name = st.selectbox("Sitio", list(site_options.keys()) if site_options else ["Sin sitios configurados"])
+            site_slug = site_options.get(site_name)
+
+        col3, col4 = st.columns(2)
+        with col3:
+            as_draft = st.toggle("Publicar como borrador", value=False, help="Guarda como borrador en WordPress para revisar antes de publicar.")
+        with col4:
+            use_emoji_title = st.toggle("Emojis en título 🎯", value=True, help="El agente incluirá emojis relevantes en el título del artículo")
+
+        # ── Portada personalizada ─────────────────────────────────────────
+        st.markdown("**Portada** (opcional — si no subes ninguna, el agente genera una automáticamente)")
+        col_img1, col_img2 = st.columns([2, 1])
+        with col_img1:
+            custom_image = st.file_uploader(
+                "Sube tu propia portada",
+                type=["jpg", "jpeg", "png", "webp"],
+                help="Si subes una imagen, se usará como portada en vez de la generada automáticamente",
+                label_visibility="collapsed",
+            )
+        with col_img2:
+            if custom_image:
+                st.image(custom_image, caption="Vista previa portada", use_container_width=True)
+            else:
+                st.caption("Sin imagen → el agente crea una con IA")
+
+        # Guardar imagen personalizada en sesión
         if custom_image:
-            st.image(custom_image, caption="Vista previa portada", use_container_width=True)
-        else:
-            st.caption("Sin imagen → el agente crea una con IA")
+            import tempfile as _tmp
+            _img_tmp = Path(_tmp.gettempdir()) / f"expertoseo_cover_{custom_image.name}"
+            _img_tmp.write_bytes(custom_image.read())
+            st.session_state["custom_cover_path"] = str(_img_tmp)
+        elif "custom_cover_path" in st.session_state and not custom_image:
+            st.session_state.pop("custom_cover_path", None)
 
-    # Guardar imagen personalizada en sesión
-    if custom_image:
-        import tempfile as _tmp
-        _img_tmp = Path(_tmp.gettempdir()) / f"expertoseo_cover_{custom_image.name}"
-        _img_tmp.write_bytes(custom_image.read())
-        st.session_state["custom_cover_path"] = str(_img_tmp)
-    elif "custom_cover_path" in st.session_state and not custom_image:
-        # Si no hay imagen subida y el campo está vacío, limpiar
-        st.session_state.pop("custom_cover_path", None)
+        st.markdown("---")
 
-    st.markdown("---")
+        auto_launch = st.session_state.pop("auto_launch", False)
+        launch = st.button("⚡ LANZAR AGENTE", type="primary", use_container_width=True) or auto_launch
 
-    # Auto-launch desde la página de inicio
-    auto_launch = st.session_state.pop("auto_launch", False)
+        if launch:
+            if not sites:
+                st.error("No hay sitios configurados. Ve a **Configuración** y añade tu sitio WordPress.")
+                st.stop()
 
-    launch = st.button("⚡ LANZAR AGENTE", type="primary", use_container_width=True) or auto_launch
+            log_q: queue.Queue = queue.Queue()
+            result_container: list = [None]
 
-    if launch:
-        if not sites:
-            st.error("No hay sitios configurados. Ve a **Configuración** y añade tu sitio WordPress.")
-            st.stop()
+            class _UILogHandler(logging.Handler):
+                def emit(self, record):
+                    log_q.put(self.format(record))
 
-        log_q: queue.Queue = queue.Queue()
-        result_container: list = [None]
+            ui_handler = _UILogHandler()
+            ui_handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s — %(message)s", datefmt="%H:%M:%S"))
+            expertoseo_logger = logging.getLogger("expertoseo")
+            expertoseo_logger.addHandler(ui_handler)
 
-        # Handler de logs que envía mensajes a la queue
-        class _UILogHandler(logging.Handler):
-            def emit(self, record):
-                log_q.put(self.format(record))
+            _cover_path = st.session_state.get("custom_cover_path")
 
-        ui_handler = _UILogHandler()
-        ui_handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s — %(message)s", datefmt="%H:%M:%S"))
-        expertoseo_logger = logging.getLogger("expertoseo")
-        expertoseo_logger.addHandler(ui_handler)
+            def _pipeline_thread():
+                try:
+                    cfg = load_config()
+                    if as_draft:
+                        cfg.setdefault("schedule", {})["publish_status"] = "draft"
+                    if use_emoji_title:
+                        cfg.setdefault("ai", {})["use_emoji_title"] = True
+                    if keyword_input.strip():
+                        from expertoseo.utils import load_json as _lj, save_json as _sj
+                        q = _lj("keywords.json")
+                        if not isinstance(q, list):
+                            q = []
+                        q.insert(0, keyword_input.strip())
+                        _sj("keywords.json", q)
+                    from expertoseo.scheduler import run_full_pipeline
+                    result_container[0] = run_full_pipeline(
+                        cfg, site_slug,
+                        custom_image_path=_cover_path,
+                    )
+                except Exception as e:
+                    result_container[0] = {"status": "error", "error": str(e)}
 
-        _cover_path = st.session_state.get("custom_cover_path")
+            thread = threading.Thread(target=_pipeline_thread, daemon=True)
+            thread.start()
 
-        def _pipeline_thread():
-            try:
-                cfg = load_config()
-                if as_draft:
-                    cfg.setdefault("schedule", {})["publish_status"] = "draft"
-                if keyword_input.strip():
-                    from expertoseo.utils import load_json as _lj, save_json as _sj
-                    q = _lj("keywords.json")
-                    if not isinstance(q, list):
-                        q = []
-                    q.insert(0, keyword_input.strip())
-                    _sj("keywords.json", q)
-                from expertoseo.scheduler import run_full_pipeline
-                result_container[0] = run_full_pipeline(
-                    cfg, site_slug,
-                    custom_image_path=_cover_path,
+            steps = [
+                "🔍 Seleccionando keyword...",
+                "✍️  Generando artículo con Claude...",
+                "🔎 Optimizando SEO...",
+                "🎨 Creando imagen de portada...",
+                "📤 Publicando en WordPress...",
+                "⚙️  Configurando RankMath...",
+            ]
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            log_container = st.empty()
+            logs: list[str] = []
+            step_idx = 0
+            step_keywords = ["keyword", "generando", "optimiz", "imagen", "publicando", "rankmath"]
+
+            while thread.is_alive():
+                try:
+                    while True:
+                        msg = log_q.get_nowait()
+                        logs.append(msg)
+                        msg_lower = msg.lower()
+                        for i, kw in enumerate(step_keywords):
+                            if kw in msg_lower and i >= step_idx:
+                                step_idx = i
+                                progress_bar.progress(min((step_idx + 1) / len(steps), 1.0))
+                                status_text.markdown(f"**{steps[step_idx]}**")
+                                break
+                except queue.Empty:
+                    pass
+                log_container.markdown(
+                    f'<div class="log-box">{chr(10).join(logs[-30:])}</div>',
+                    unsafe_allow_html=True,
                 )
-            except Exception as e:
-                result_container[0] = {"status": "error", "error": str(e)}
+                time.sleep(0.3)
 
-        thread = threading.Thread(target=_pipeline_thread, daemon=True)
-        thread.start()
-
-        # Progreso y logs en vivo
-        steps = [
-            "🔍 Seleccionando keyword...",
-            "✍️  Generando artículo con Claude...",
-            "🔎 Optimizando SEO...",
-            "🎨 Creando imagen de portada...",
-            "📤 Publicando en WordPress...",
-            "⚙️  Configurando RankMath...",
-        ]
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        log_container = st.empty()
-        logs: list[str] = []
-        step_idx = 0
-        step_keywords = ["keyword", "generando", "optimiz", "imagen", "publicando", "rankmath"]
-
-        while thread.is_alive():
             try:
                 while True:
-                    msg = log_q.get_nowait()
-                    logs.append(msg)
-                    # Detectar paso actual por keywords en el log
-                    msg_lower = msg.lower()
-                    for i, kw in enumerate(step_keywords):
-                        if kw in msg_lower and i >= step_idx:
-                            step_idx = i
-                            progress_bar.progress(min((step_idx + 1) / len(steps), 1.0))
-                            status_text.markdown(f"**{steps[step_idx]}**")
-                            break
+                    logs.append(log_q.get_nowait())
             except queue.Empty:
                 pass
+
+            expertoseo_logger.removeHandler(ui_handler)
+            thread.join()
+
+            progress_bar.progress(1.0)
             log_container.markdown(
-                f'<div class="log-box">{chr(10).join(logs[-30:])}</div>',
+                f'<div class="log-box">{chr(10).join(logs)}</div>',
                 unsafe_allow_html=True,
             )
-            time.sleep(0.3)
 
-        # Vaciar queue final
-        try:
-            while True:
-                logs.append(log_q.get_nowait())
-        except queue.Empty:
-            pass
+            result = result_container[0]
+            if result and result.get("status") == "success":
+                status_text.empty()
+                st.success("✅ ¡Artículo publicado correctamente!")
+                col_res1, col_res2 = st.columns([2, 1])
+                with col_res1:
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Score SEO", f"{result.get('seo_score', '-')}/100")
+                    c2.metric("Keyword", result.get("keyword", "-")[:20])
+                    c3.metric("Estado", "Publicado" if not as_draft else "Borrador")
+                    if result.get("link"):
+                        st.markdown(f"🔗 **[Ver artículo en WordPress]({result['link']})**")
+                with col_res2:
+                    _img_path = result.get("image_path") or _cover_path
+                    if _img_path and Path(str(_img_path)).exists():
+                        st.image(str(_img_path), caption="Portada publicada", use_container_width=True)
+            else:
+                status_text.empty()
+                err = result.get("error", "Error desconocido") if result else "Sin respuesta"
+                st.error(f"❌ Error durante la publicación: {err}")
 
-        expertoseo_logger.removeHandler(ui_handler)
-        thread.join()
+    # ─── TAB 2: CALENDARIO ────────────────────────────────────────────────────
+    with _pub_tab2:
+        import calendar as _cal
+        from datetime import datetime as _dt
 
-        progress_bar.progress(1.0)
-        log_container.markdown(
-            f'<div class="log-box">{chr(10).join(logs)}</div>',
-            unsafe_allow_html=True,
-        )
+        _now = _dt.now()
+        _pub_all = load_json("published.json")
+        if not isinstance(_pub_all, list):
+            _pub_all = []
 
-        result = result_container[0]
-        if result and result.get("status") == "success":
-            status_text.empty()
-            st.success(f"✅ ¡Artículo publicado correctamente!")
-            col_res1, col_res2 = st.columns([2, 1])
-            with col_res1:
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Score SEO", f"{result.get('seo_score', '-')}/100")
-                c2.metric("Keyword", result.get("keyword", "-")[:20])
-                c3.metric("Estado", "Publicado" if not as_draft else "Borrador")
-                if result.get("link"):
-                    st.markdown(f"🔗 **[Ver artículo en WordPress]({result['link']})**")
-            with col_res2:
-                # Mostrar portada generada si existe
-                _img_path = result.get("image_path") or _cover_path
-                if _img_path and Path(str(_img_path)).exists():
-                    st.image(str(_img_path), caption="Portada publicada", use_container_width=True)
-                    # Botón para cambiar portada
-                    new_cover = st.file_uploader("Cambiar portada", type=["jpg","jpeg","png","webp"],
-                                                  key="change_cover_after")
-                    if new_cover and result.get("post_id"):
-                        st.info("Para cambiar la portada, republica con la nueva imagen.")
+        # Construir índice por fecha
+        _pub_by_date: dict = {}
+        for _p in _pub_all:
+            _d = (_p.get("date") or "")[:10]
+            if _d:
+                _pub_by_date.setdefault(_d, []).append(_p)
+
+        # Selector mes/año
+        _col_m1, _col_m2, _col_m3 = st.columns([1, 1, 3])
+        with _col_m1:
+            _sel_month = st.selectbox("Mes", list(range(1, 13)), index=_now.month - 1,
+                                      format_func=lambda m: _dt(2000, m, 1).strftime("%B"))
+        with _col_m2:
+            _sel_year = st.selectbox("Año", list(range(_now.year - 1, _now.year + 2)), index=1)
+
+        _month_name = _dt(_sel_year, _sel_month, 1).strftime("%B %Y")
+        st.subheader(f"📅 {_month_name}")
+
+        # Construir calendario HTML
+        _weeks = _cal.monthcalendar(_sel_year, _sel_month)
+        _day_names = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+        _cal_html = ['<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:12px">']
+        for dn in _day_names:
+            _cal_html.append(f'<div style="text-align:center;font-size:.7rem;color:rgba(255,255,255,.4);padding:4px;font-weight:600;letter-spacing:.05em">{dn}</div>')
+        _total_month_pubs = 0
+        for _week in _weeks:
+            for _day in _week:
+                if _day == 0:
+                    _cal_html.append('<div></div>')
+                else:
+                    _date_str = f"{_sel_year}-{_sel_month:02d}-{_day:02d}"
+                    _pubs = _pub_by_date.get(_date_str, [])
+                    _total_month_pubs += len(_pubs)
+                    _is_today = (_date_str == _now.strftime("%Y-%m-%d"))
+                    if _pubs:
+                        _titles = "\n".join(f"• {p.get('title','?')[:30]}" for p in _pubs)
+                        _bg = "rgba(48,209,88,0.2)"
+                        _border = "1px solid #30d158"
+                        _color = "#30d158"
+                        _badge = f'<div style="font-size:.65rem;margin-top:2px">{len(_pubs)} art.</div>'
+                    elif _is_today:
+                        _bg = "rgba(10,132,255,0.15)"
+                        _border = "1px solid #0a84ff"
+                        _color = "#0a84ff"
+                        _badge = '<div style="font-size:.6rem;margin-top:2px">hoy</div>'
+                    else:
+                        _bg = "rgba(255,255,255,0.04)"
+                        _border = "1px solid rgba(255,255,255,0.08)"
+                        _color = "rgba(255,255,255,.6)"
+                        _badge = ""
+                    _cal_html.append(
+                        f'<div style="background:{_bg};border:{_border};border-radius:10px;padding:8px 4px;'
+                        f'text-align:center;min-height:54px">'
+                        f'<div style="font-size:.9rem;font-weight:600;color:{_color}">{_day}</div>'
+                        f'{_badge}</div>'
+                    )
+        _cal_html.append('</div>')
+        st.markdown("".join(_cal_html), unsafe_allow_html=True)
+
+        st.markdown(f"**Total publicado en {_month_name}: {_total_month_pubs} artículo(s)**")
+
+        # Lista detallada del mes
+        _month_pubs = [(d, p) for d, ps in _pub_by_date.items()
+                       for p in ps if d.startswith(f"{_sel_year}-{_sel_month:02d}")]
+        _month_pubs.sort(key=lambda x: x[0])
+        if _month_pubs:
+            st.markdown("---")
+            for _d, _p in _month_pubs:
+                _score = _p.get("seo_score", "-")
+                _kw = _p.get("keyword", "—")
+                _link = _p.get("link", "")
+                _title = _p.get("title", "Sin título")
+                _score_color = "#30d158" if isinstance(_score, int) and _score >= 70 else "#ff9f0a" if isinstance(_score, int) and _score >= 50 else "#ff453a"
+                _link_html = f' <a href="{_link}" target="_blank" style="color:#0a84ff;font-size:.8rem">↗ Ver</a>' if _link else ""
+                st.markdown(
+                    f'<div style="background:#1c1c1e;border-radius:10px;padding:10px 14px;margin-bottom:6px;border:1px solid rgba(255,255,255,.08)">'
+                    f'<span style="color:rgba(255,255,255,.4);font-size:.75rem">{_d}</span>'
+                    f'<span style="margin-left:12px;font-weight:600;color:#fff">{_title}</span>{_link_html}<br>'
+                    f'<span style="font-size:.78rem;color:rgba(255,255,255,.5)">Keyword: {_kw}</span>'
+                    f'<span style="margin-left:16px;font-size:.78rem;color:{_score_color}">SEO: {_score}/100</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+    # ─── TAB 3: RANKMATH SEO ──────────────────────────────────────────────────
+    with _pub_tab3:
+        import os as _rm_os, requests as _rm_req
+
+        st.markdown("Gestiona el SEO de tus artículos publicados directamente desde aquí. Los cambios se aplican en WordPress via API.")
+
+        _rm_token  = _rm_os.environ.get("EXPERTOSEO_SECRET_TOKEN", "")
+        _rm_config = _load_config_safe()
+        _rm_url    = (_rm_config.get("sites") or [{}])[0].get("url", "").rstrip("/")
+        _rm_pubs   = load_json("published.json")
+        if not isinstance(_rm_pubs, list):
+            _rm_pubs = []
+        _rm_pubs_with_id = [p for p in _rm_pubs if p.get("post_id")]
+
+        if not _rm_token:
+            st.warning("Necesitas configurar `EXPERTOSEO_SECRET_TOKEN` para editar posts via API.")
+        elif not _rm_pubs_with_id:
+            st.info("Aún no hay artículos publicados con ID de WordPress. Publica el primero desde la pestaña **📤 Publicar artículo**.")
         else:
-            status_text.empty()
-            err = result.get("error", "Error desconocido") if result else "Sin respuesta"
-            st.error(f"❌ Error durante la publicación: {err}")
+            # Selector de artículo
+            _rm_options = {f"{p.get('title','?')[:50]} ({p.get('date','')[:10]})": p for p in reversed(_rm_pubs_with_id)}
+            _rm_sel_label = st.selectbox("Selecciona un artículo", list(_rm_options.keys()))
+            _rm_sel = _rm_options[_rm_sel_label]
+            _rm_post_id = _rm_sel.get("post_id")
+
+            # Fetch datos actuales del post
+            if st.button("🔄 Cargar datos actuales de WordPress", key="rm_load"):
+                with st.spinner("Cargando..."):
+                    try:
+                        _r = _rm_req.get(
+                            f"{_rm_url}/wp-json/wp/v2/posts/{_rm_post_id}",
+                            headers={"X-Expertoseo-Token": _rm_token},
+                            timeout=10,
+                        )
+                        if _r.status_code == 200:
+                            _post_data = _r.json()
+                            st.session_state["rm_post_data"] = _post_data
+                            st.success("✅ Datos cargados")
+                        else:
+                            st.error(f"Error {_r.status_code}: {_r.text[:200]}")
+                    except Exception as _ex:
+                        st.error(str(_ex))
+
+            _cached = st.session_state.get("rm_post_data", {})
+            _meta = _cached.get("meta", {}) if isinstance(_cached.get("meta"), dict) else {}
+
+            st.markdown("---")
+            st.subheader("✏️ Editar SEO")
+
+            with st.form("rankmath_form"):
+                _rm_seo_title = st.text_input(
+                    "🏷️ SEO Title (RankMath)",
+                    value=_meta.get("rank_math_title", _rm_sel.get("seo_title", "")),
+                    placeholder="Título SEO con keyword principal — puede incluir emojis 🏆",
+                    help="Aparece en los resultados de Google. Máx. 60 caracteres recomendado."
+                )
+                _char_count = len(_rm_seo_title)
+                _cc_color = "#30d158" if _char_count <= 60 else "#ff453a"
+                st.markdown(f'<span style="font-size:.75rem;color:{_cc_color}">{_char_count}/60 caracteres</span>', unsafe_allow_html=True)
+
+                _rm_meta_desc = st.text_area(
+                    "📝 Meta descripción",
+                    value=_meta.get("rank_math_description", _rm_sel.get("meta_description", "")),
+                    height=80,
+                    placeholder="Descripción que aparece en Google — incluye la keyword y un CTA. Máx. 155 caracteres.",
+                )
+                _mdc = len(_rm_meta_desc)
+                _mdc_color = "#30d158" if _mdc <= 155 else "#ff453a"
+                st.markdown(f'<span style="font-size:.75rem;color:{_mdc_color}">{_mdc}/155 caracteres</span>', unsafe_allow_html=True)
+
+                _rm_focus_kw = st.text_input(
+                    "🎯 Focus Keyword",
+                    value=_meta.get("rank_math_focus_keyword", _rm_sel.get("keyword", "")),
+                    placeholder="Keyword principal del artículo",
+                )
+
+                _rm_submit = st.form_submit_button("💾 Guardar en WordPress", type="primary", use_container_width=True)
+                if _rm_submit:
+                    _payload = {
+                        "meta": {
+                            "rank_math_title": _rm_seo_title,
+                            "rank_math_description": _rm_meta_desc,
+                            "rank_math_focus_keyword": _rm_focus_kw,
+                        }
+                    }
+                    with st.spinner("Guardando en WordPress..."):
+                        try:
+                            _r = _rm_req.post(
+                                f"{_rm_url}/wp-json/wp/v2/posts/{_rm_post_id}",
+                                headers={"X-Expertoseo-Token": _rm_token, "Content-Type": "application/json"},
+                                json=_payload,
+                                timeout=15,
+                            )
+                            if _r.status_code in (200, 201):
+                                st.success("✅ SEO actualizado en WordPress")
+                                # Actualizar registro local
+                                for _lp in _rm_pubs:
+                                    if _lp.get("post_id") == _rm_post_id:
+                                        _lp["seo_title"] = _rm_seo_title
+                                        _lp["meta_description"] = _rm_meta_desc
+                                        _lp["keyword"] = _rm_focus_kw
+                                save_json("published.json", _rm_pubs)
+                            else:
+                                st.error(f"Error {_r.status_code}: {_r.text[:400]}")
+                        except Exception as _ex:
+                            st.error(str(_ex))
+
+            # Enlace al artículo
+            if _rm_sel.get("link"):
+                st.markdown(f"🔗 [Ver artículo en WordPress]({_rm_sel['link']})")
+
+    # ─── TAB 4: SEO INTERNO ───────────────────────────────────────────────────
+    with _pub_tab4:
+        st.markdown("Registro de las optimizaciones SEO aplicadas automáticamente por EXPERTOSEO a cada artículo.")
+
+        _si_pubs = load_json("published.json")
+        if not isinstance(_si_pubs, list) or not _si_pubs:
+            st.info("Todavía no hay artículos publicados. El SEO Interno se mostrará aquí una vez que publiques el primero.")
+        else:
+            for _si_p in reversed(_si_pubs[-20:]):
+                _si_title = _si_p.get("title", "Sin título")
+                _si_kw    = _si_p.get("keyword", "—")
+                _si_score = _si_p.get("seo_score", "—")
+                _si_date  = (_si_p.get("date") or "")[:10]
+                _si_link  = _si_p.get("link", "")
+                _si_meta  = _si_p.get("meta_description", "—")
+                _si_seo_t = _si_p.get("seo_title", "—")
+                _si_tags  = _si_p.get("tags", [])
+                _si_cat   = _si_p.get("categories", [])
+                _si_score_color = "#30d158" if isinstance(_si_score, int) and _si_score >= 70 else "#ff9f0a" if isinstance(_si_score, int) and _si_score >= 50 else "#ff453a"
+
+                with st.expander(f"📄 {_si_title[:60]} — {_si_date}", expanded=False):
+                    _c1, _c2, _c3, _c4 = st.columns(4)
+                    _c1.metric("Score SEO", f"{_si_score}/100")
+                    _c2.metric("Keyword", _si_kw[:18] if _si_kw else "—")
+                    _c3.metric("Fecha", _si_date or "—")
+                    _c4.metric("Estado", _si_p.get("status", "—"))
+
+                    st.markdown("**🏷️ SEO Title aplicado:**")
+                    st.code(_si_seo_t, language=None)
+                    st.markdown("**📝 Meta descripción:**")
+                    st.code(_si_meta, language=None)
+                    if _si_tags:
+                        st.markdown(f"**🔖 Tags:** {', '.join(str(t) for t in _si_tags[:10])}")
+                    if _si_cat:
+                        st.markdown(f"**📁 Categorías:** {', '.join(str(c) for c in _si_cat[:5])}")
+                    if _si_link:
+                        st.markdown(f"[🔗 Ver en WordPress]({_si_link})")
 
 
 # ─────────────────────────────────────────────

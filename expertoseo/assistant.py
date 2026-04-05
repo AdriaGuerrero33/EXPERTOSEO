@@ -16,33 +16,38 @@ console = Console()
 SYSTEM_PROMPT = """Eres EXPERTOSEO, un experto en SEO de alto nivel con más de 10 años de experiencia.
 Tu misión es ayudar al usuario a posicionarse en el TOP 1 de Google para todas sus webs.
 
-Eres un experto en:
-- SEO On-Page: optimización de contenido, metadatos, estructura HTML, schema markup
+Tienes acceso completo a los datos del sistema: artículos publicados, rankings de Google Search Console,
+cola de keywords, configuración del sitio y métricas SEO. Úsalos siempre para dar respuestas concretas.
+
+Eres experto en:
+- SEO On-Page: optimización de contenido, metadatos, estructura HTML, schema markup, emojis en títulos
 - SEO Off-Page: link building, autoridad de dominio, menciones de marca
 - SEO Técnico: Core Web Vitals, indexación, sitemap, robots.txt, velocidad de carga
-- Keyword Research: volumen, dificultad, intención de búsqueda, long-tail
-- Content Marketing: estrategia de contenidos, pillar pages, topic clusters
-- Google Search Console: análisis de datos, detección de problemas
-- WordPress + RankMath: configuración óptima, checklist de publicación
-- Algoritmos de Google: E-E-A-T, Helpful Content Update, Core Updates
+- Keyword Research: volumen, dificultad, intención de búsqueda, long-tail, clustering semántico
+- Content Marketing: estrategia de contenidos, pillar pages, topic clusters, cadencia de publicación
+- Google Search Console: análisis de datos, CTR, impresiones, posición media, detección de oportunidades
+- WordPress + RankMath: configuración óptima, meta titles, meta descriptions, focus keywords, schema
+- Algoritmos de Google: E-E-A-T, Helpful Content Update, Core Updates 2024-2025
+- Elementor: compatibilidad de contenido, estructura de páginas
 
-DATOS DE CONTEXTO (actualizados):
+=== DATOS EN TIEMPO REAL DEL SISTEMA ===
 {context}
+=== FIN DE DATOS ===
 
 CAPACIDADES DISPONIBLES:
-- Puedes sugerir al usuario ejecutar comandos específicos de EXPERTOSEO
-- Analizas datos de rankings y keywords del sistema
-- Das recomendaciones concretas y priorizadas
-- Generas estrategias SEO personalizadas para el nicho del usuario
+- Tienes todos los datos del sistema listados arriba — úsalos directamente en tus respuestas
+- Puedes analizar patrones en los artículos publicados y sugerir mejoras concretas
+- Puedes identificar keywords en posición 11-20 para optimización rápida
+- Puedes generar títulos con emojis, meta descripciones, estrategias de linking interno
+- Puedes recomendar qué artículo publicar a continuación según los gaps de keywords
 
 REGLAS:
-- Responde siempre en español
-- Sé concreto y accionable. No des consejos genéricos
-- Cuando detectes una oportunidad clara, priorízala y explica por qué
-- Si el usuario pregunta sobre sus rankings, usa los datos de contexto
-- Si necesitas datos que no tienes, díselo claramente
-- Usa ejemplos reales y específicos cuando sea posible
-- Al final de cada respuesta larga, resume los 3 próximos pasos prioritarios"""
+- Responde SIEMPRE en español
+- Sé concreto y accionable — cita datos reales del sistema cuando los tengas
+- Nunca des consejos genéricos si hay datos disponibles para ser específico
+- Cuando detectes una oportunidad clara (keyword en pos 11-20, artículo con score bajo, etc.), priorízala
+- Si el usuario pregunta sobre rankings, artículos o keywords, USA los datos de arriba
+- Al final de cada respuesta larga, incluye: **📋 Próximos 3 pasos prioritarios:**"""
 
 
 class SEOAssistant:
@@ -58,34 +63,59 @@ class SEOAssistant:
 
     def _build_context(self) -> str:
         """Construye el contexto con datos actuales del sistema."""
+        import os
         lines = []
 
-        # Sitios configurados
+        # ── Sitio y configuración ──────────────────────────────────────────
         sites = self.config.get("sites", [])
         if sites:
-            site_info = ", ".join(f"{s.get('name')} ({s.get('url')})" for s in sites)
-            lines.append(f"Sitios web: {site_info}")
-
-        # Nicho
+            s = sites[0]
+            lines.append(f"Sitio web: {s.get('name', '?')} — {s.get('url', '?')}")
         niche = self.config.get("keywords", {}).get("niche", "")
         if niche:
-            lines.append(f"Nicho principal: {niche}")
+            lines.append(f"Nicho: {niche}")
 
-        # Keywords en cola
+        # ── Estado de APIs ─────────────────────────────────────────────────
+        wp_token = os.environ.get("EXPERTOSEO_SECRET_TOKEN", "")
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        gsc_key = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+        lines.append(f"APIs: Claude={'✅' if anthropic_key else '❌'} | WordPress Token={'✅' if wp_token else '❌'} | GSC={'✅' if gsc_key else '❌'}")
+
+        # ── Keywords en cola ───────────────────────────────────────────────
         kw_queue = load_json("keywords.json")
         if isinstance(kw_queue, list) and kw_queue:
-            lines.append(f"Keywords en cola ({len(kw_queue)}): {', '.join(kw_queue[:5])}")
+            lines.append(f"\nKeywords en cola ({len(kw_queue)}): {', '.join(kw_queue[:8])}")
+        else:
+            lines.append("\nCola de keywords: vacía")
 
-        # Últimas publicaciones
+        # ── Artículos publicados ───────────────────────────────────────────
         published = load_json("published.json")
         if isinstance(published, list) and published:
-            lines.append(f"\nÚltimos artículos publicados ({len(published)} total):")
-            for p in published[:5]:
-                status = p.get("status", "?")
-                score = p.get("seo_score", "-")
-                lines.append(f"  - '{p.get('title', 'Sin título')}' | Score: {score}/100 | {p.get('date', '')[:10]}")
+            scores = [p.get("seo_score") for p in published if isinstance(p.get("seo_score"), (int, float))]
+            avg_score = round(sum(scores) / len(scores)) if scores else 0
+            lines.append(f"\nArtículos publicados: {len(published)} total | Score SEO medio: {avg_score}/100")
 
-        # Rankings y datos GSC más recientes
+            # Últimos 8 artículos con detalle
+            lines.append("Últimos artículos:")
+            for p in reversed(published[-8:]):
+                sc = p.get("seo_score", "—")
+                kw = p.get("keyword", "—")
+                dt = (p.get("date") or "")[:10]
+                title = p.get("title", "Sin título")[:60]
+                seo_t = p.get("seo_title", "")[:50]
+                lines.append(f"  [{dt}] {title}")
+                lines.append(f"     Keyword: {kw} | Score: {sc}/100 | SEO Title: {seo_t or '(no configurado)'}")
+
+            # Artículos con score bajo (mejora rápida)
+            low_score = [p for p in published if isinstance(p.get("seo_score"), int) and p["seo_score"] < 60]
+            if low_score:
+                lines.append(f"\nArtículos con score SEO bajo (<60) — oportunidad de mejora:")
+                for p in low_score[:5]:
+                    lines.append(f"  - '{p.get('title','?')[:50]}' → Score: {p.get('seo_score')}/100")
+        else:
+            lines.append("\nArtículos publicados: ninguno todavía")
+
+        # ── Rankings Google Search Console ────────────────────────────────
         rankings_history = load_json("rankings.json")
         if isinstance(rankings_history, dict) and rankings_history:
             latest_date = max(rankings_history.keys())
@@ -95,37 +125,43 @@ class SEOAssistant:
             total_impressions = sum(r.get("impressions", 0) or 0 for r in latest)
             avg_pos = sum(r.get("position", 0) for r in latest) / len(latest) if latest else 0
 
-            lines.append(f"\n=== Datos Google Search Console ({latest_date}) ===")
-            lines.append(f"Keywords rastreadas: {len(latest)}")
-            lines.append(f"Clics totales: {total_clicks} | Impresiones: {total_impressions} | Posición media: {avg_pos:.1f}")
+            lines.append(f"\n=== Google Search Console ({latest_date}) ===")
+            lines.append(f"Palabras clave rastreadas: {len(latest)}")
+            lines.append(f"Clics: {total_clicks} | Impresiones: {total_impressions} | Posición media: {avg_pos:.1f}")
 
-            top3  = [r for r in latest if r.get("position", 99) <= 3]
-            top10 = [r for r in latest if r.get("position", 99) <= 10]
-            top20 = [r for r in latest if r.get("position", 99) <= 20]
-            top50 = [r for r in latest if 20 < r.get("position", 99) <= 50]
+            top3  = sorted([r for r in latest if r.get("position", 99) <= 3],  key=lambda x: x.get("clicks", 0), reverse=True)
+            top10 = sorted([r for r in latest if 3 < r.get("position", 99) <= 10], key=lambda x: x.get("clicks", 0), reverse=True)
+            top20 = sorted([r for r in latest if 10 < r.get("position", 99) <= 20], key=lambda x: x.get("impressions", 0), reverse=True)
+            top50 = sorted([r for r in latest if 20 < r.get("position", 99) <= 50], key=lambda x: x.get("impressions", 0), reverse=True)
 
             if top3:
-                lines.append(f"\nKeywords TOP 1-3 ({len(top3)}):")
-                for r in top3[:10]:
-                    lines.append(f"  - '{r['keyword']}' → pos {r['position']} | {r.get('clicks',0)} clicks | {r.get('impressions',0)} impresiones")
+                lines.append(f"\nTOP 1-3 ({len(top3)} keywords) — ya están posicionadas, optimizar CTR:")
+                for r in top3[:8]:
+                    lines.append(f"  '{r['keyword']}' → pos {r['position']:.1f} | {r.get('clicks',0)} clicks | {r.get('impressions',0)} imp | CTR {r.get('ctr',0)*100:.1f}%")
             if top10:
-                lines.append(f"\nKeywords TOP 4-10 ({len(top10)}):")
-                for r in top10[:10]:
-                    lines.append(f"  - '{r['keyword']}' → pos {r['position']} | {r.get('clicks',0)} clicks | {r.get('impressions',0)} impresiones")
+                lines.append(f"\nTOP 4-10 ({len(top10)} keywords) — zona de clics, mantener y mejorar:")
+                for r in top10[:8]:
+                    lines.append(f"  '{r['keyword']}' → pos {r['position']:.1f} | {r.get('clicks',0)} clicks | {r.get('impressions',0)} imp")
             if top20:
-                lines.append(f"\nKeywords TOP 11-20 (oportunidades rápidas) ({len(top20)}):")
+                lines.append(f"\nTOP 11-20 ({len(top20)} keywords) — OPORTUNIDAD RÁPIDA, un push puede llevarlas al TOP 10:")
                 for r in top20[:10]:
-                    lines.append(f"  - '{r['keyword']}' → pos {r['position']} | {r.get('impressions',0)} impresiones")
+                    lines.append(f"  '{r['keyword']}' → pos {r['position']:.1f} | {r.get('impressions',0)} imp | {r.get('clicks',0)} clicks")
             if top50:
-                lines.append(f"\nKeywords TOP 21-50 (potencial a medio plazo) ({len(top50)} keywords)")
-                # Ordenar por impresiones descendente para priorizar
-                for r in sorted(top50, key=lambda x: x.get("impressions", 0), reverse=True)[:5]:
-                    lines.append(f"  - '{r['keyword']}' → pos {r['position']} | {r.get('impressions',0)} impresiones")
-        else:
-            lines.append("\nGSC no conectado todavía — anima al usuario a configurar las credenciales para ver sus rankings.")
+                lines.append(f"\nTOP 21-50 ({len(top50)} keywords) — potencial a medio plazo:")
+                for r in top50[:8]:
+                    lines.append(f"  '{r['keyword']}' → pos {r['position']:.1f} | {r.get('impressions',0)} imp")
 
-        if not lines:
-            lines.append("No hay datos disponibles aún. Configura los sitios y ejecuta los primeros análisis.")
+            # Calcular tendencia simple (si hay datos de fecha anterior)
+            dates = sorted(rankings_history.keys())
+            if len(dates) >= 2:
+                prev_date = dates[-2]
+                prev = rankings_history[prev_date]
+                prev_clicks = sum(r.get("clicks", 0) or 0 for r in prev)
+                delta = total_clicks - prev_clicks
+                trend = "📈" if delta > 0 else "📉" if delta < 0 else "➡️"
+                lines.append(f"\nTendencia clics ({prev_date} → {latest_date}): {trend} {delta:+d} clics")
+        else:
+            lines.append("\nGSC: no hay datos todavía. El usuario debe conectar Google Search Console en Credenciales.")
 
         return "\n".join(lines)
 

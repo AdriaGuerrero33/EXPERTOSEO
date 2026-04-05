@@ -13,6 +13,8 @@ Eres un experto en SEO y redacción de contenido web. Tu tarea es crear un artí
 
 ## Instrucciones de Generación
 
+{emoji_instruction}
+
 ### Estructura obligatoria del artículo:
 1. **Título H1**: Incluye la keyword exacta. Máximo 60 caracteres. Atractivo y con intención de búsqueda clara.
 2. **Introducción** (150-200 palabras): Incluye la keyword en el primer párrafo. Engancha al lector inmediatamente.
