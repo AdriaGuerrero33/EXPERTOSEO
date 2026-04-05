@@ -1,5 +1,6 @@
 """
 Utilidades comunes para EXPERTOSEO
+v1.1 — fuerza redespliegue Railway para cargar variables de entorno actualizadas
 """
 
 import os
