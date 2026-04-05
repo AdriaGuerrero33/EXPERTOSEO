@@ -1005,9 +1005,11 @@ elif page == "🔌 Estado APIs":
                 data = resp.json()
                 return True, f"Conectado como '{data.get('name', user)}' en {url}"
             elif resp.status_code == 401:
-                return False, "Credenciales incorrectas — revisa WP_APP_PASSWORD_SITE1"
+                return False, f"401 — Credenciales incorrectas para usuario '{user}'"
+            elif resp.status_code == 403:
+                return False, f"403 — El usuario '{user}' no existe en WordPress. Ve a 🗝️ Credenciales → introduce tu username real de WP"
             else:
-                return False, f"Error {resp.status_code} — {url} no responde"
+                return False, f"Error {resp.status_code} — {url}"
         _check("WordPress REST API", _test_wordpress)
 
         # RankMath
@@ -1161,6 +1163,7 @@ elif page == "🗝️ Credenciales":
 
     CREDS_DEF = [
         ("ANTHROPIC_API_KEY",        "Claude AI API Key",                              True),
+        ("WP_USERNAME_SITE1",        "WordPress Username",                             True),
         ("WP_APP_PASSWORD_SITE1",    "WordPress Application Password",                 True),
         ("OPENAI_API_KEY",           "OpenAI API Key (opcional — imágenes DALL-E)",    False),
         ("UNSPLASH_ACCESS_KEY",      "Unsplash API Key (opcional — imágenes temáticas)", False),
@@ -1201,6 +1204,11 @@ elif page == "🗝️ Credenciales":
             placeholder="sk-ant-api03-...",
             help="Obtén tu clave en console.anthropic.com → API Keys",
         )
+        new_wp_user = st.text_input(
+            "WordPress Username (WP_USERNAME_SITE1)",
+            placeholder="tu-usuario-wordpress",
+            help="Tu nombre de usuario de WordPress (el que usas para iniciar sesión, NO el nombre visible). Lo encuentras en WP Admin → Usuarios → tu perfil → campo 'Nombre de usuario'",
+        )
         new_wp_pass = st.text_input(
             "WordPress Application Password (WP_APP_PASSWORD_SITE1)",
             type="password",
@@ -1239,6 +1247,7 @@ elif page == "🗝️ Credenciales":
 
             _updates = {}
             if new_anthropic.strip(): _updates["ANTHROPIC_API_KEY"] = new_anthropic.strip()
+            if new_wp_user.strip():   _updates["WP_USERNAME_SITE1"] = new_wp_user.strip()
             if new_wp_pass.strip():   _updates["WP_APP_PASSWORD_SITE1"] = new_wp_pass.strip()
             if new_openai.strip():    _updates["OPENAI_API_KEY"] = new_openai.strip()
             if new_unsplash.strip():  _updates["UNSPLASH_ACCESS_KEY"] = new_unsplash.strip()
@@ -1251,6 +1260,61 @@ elif page == "🗝️ Credenciales":
                 st.rerun()
             else:
                 st.warning("No has introducido ninguna credencial nueva.")
+
+    st.markdown("---")
+    st.subheader("🔌 Probar conexión WordPress")
+    col_test, col_detect = st.columns(2)
+    with col_test:
+        if st.button("🧪 Probar WordPress ahora", use_container_width=True):
+            import requests as _req
+            cfg = _safe_load_config()
+            sites = cfg.get("sites", [])
+            if not sites:
+                st.error("No hay sitios en config.yaml")
+            else:
+                site = sites[0]
+                url = site.get("url", "").rstrip("/")
+                creds = site.get("wp_app_password", "")
+                user = site.get("wp_user", "")
+                if not creds:
+                    st.error("Falta WordPress Application Password — introdúcela arriba")
+                else:
+                    if ":" in creds:
+                        user, creds = creds.split(":", 1)
+                    with st.spinner(f"Probando conexión con {url}..."):
+                        try:
+                            r = _req.get(f"{url}/wp-json/wp/v2/users/me",
+                                        auth=(user.strip(), creds.strip()), timeout=10)
+                            if r.status_code == 200:
+                                name = r.json().get("name", user)
+                                st.success(f"✅ Conectado como **{name}** en {url}")
+                            elif r.status_code == 401:
+                                st.error("❌ 401 — Usuario o Application Password incorrectos")
+                            elif r.status_code == 403:
+                                st.error(f"❌ 403 — Usuario '{user}' no tiene permisos o es incorrecto. El error 403 (no 401) significa que el usuario que escribiste NO EXISTE en WordPress. Escribe tu nombre de usuario de WordPress real arriba.")
+                            else:
+                                st.error(f"❌ Error {r.status_code}: {r.text[:200]}")
+                        except Exception as ex:
+                            st.error(f"❌ {ex}")
+    with col_detect:
+        if st.button("🔍 Detectar usuarios de WordPress", use_container_width=True):
+            import requests as _req
+            cfg = _safe_load_config()
+            sites = cfg.get("sites", [])
+            if sites:
+                url = sites[0].get("url", "").rstrip("/")
+                with st.spinner("Listando usuarios públicos..."):
+                    try:
+                        r = _req.get(f"{url}/wp-json/wp/v2/users", timeout=8)
+                        if r.status_code == 200:
+                            users = r.json()
+                            st.info(f"Usuarios encontrados en {url}:")
+                            for u in users:
+                                st.code(f"Username: {u.get('slug', '?')}  |  Nombre: {u.get('name', '?')}  |  ID: {u.get('id', '?')}")
+                        else:
+                            st.warning(f"No se pueden listar usuarios públicamente (código {r.status_code}). Busca tu username en: WordPress Admin → Usuarios → tu perfil → campo 'Nombre de usuario'")
+                    except Exception as ex:
+                        st.error(str(ex))
 
     st.markdown("---")
     with st.expander("📖 ¿Dónde encuentro cada credencial? (guía paso a paso)"):

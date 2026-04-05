@@ -88,11 +88,15 @@ def load_config() -> dict:
         raise FileNotFoundError(f"config.yaml no encontrado en {ROOT_DIR}")
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
-    # Resolver variables de entorno en app_passwords
+    # Resolver variables de entorno en username y app_passwords
     for site in config.get("sites", []):
         slug = site.get("slug", "")
-        env_key = f"WP_APP_PASSWORD_{slug}"
-        env_val = os.getenv(env_key)
+        # Username override (WP_USERNAME_SITE1, etc.)
+        username_env = os.getenv(f"WP_USERNAME_{slug}")
+        if username_env:
+            site["wp_user"] = username_env
+        # App password (WP_APP_PASSWORD_SITE1, etc.)
+        env_val = os.getenv(f"WP_APP_PASSWORD_{slug}")
         if env_val:
             site["wp_app_password"] = env_val
     return config
