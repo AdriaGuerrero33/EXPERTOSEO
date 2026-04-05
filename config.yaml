@@ -7,7 +7,7 @@ sites:
   - name: "Reseñas Premium"
     slug: "SITE1"                          # WP_APP_PASSWORD_SITE1 en Railway Variables
     url: "https://resenaspremium.com"
-    wp_user: "FernandoSEO"
+    wp_user: ""                            # Sobreescrito por WP_USERNAME_SITE1 en Railway Variables
     default_category: "SEO"
     default_author_id: 1
     language: "es"

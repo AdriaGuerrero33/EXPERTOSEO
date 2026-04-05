@@ -1295,12 +1295,25 @@ Estos son los valores que debes añadir en **Railway → tu servicio → Variabl
                                      auth=(_wp_user_now, _wp_pass_now), timeout=10)
                         if r.status_code == 200:
                             st.success(f"✅ Conectado como **{r.json().get('name', _wp_user_now)}**")
-                        elif r.status_code == 401:
-                            st.error("❌ 401 — Application Password incorrecta")
-                        elif r.status_code == 403:
-                            st.error(f"❌ 403 — El usuario `{_wp_user_now}` no existe en WordPress. Revisa el username.")
                         else:
-                            st.error(f"❌ {r.status_code}: {r.text[:150]}")
+                            # Mostrar respuesta completa para diagnóstico exacto
+                            try:
+                                body = r.json()
+                                code = body.get("code", "?")
+                                msg  = body.get("message", r.text[:200])
+                            except Exception:
+                                code, msg = str(r.status_code), r.text[:300]
+                            st.error(f"❌ HTTP {r.status_code} | code: `{code}`")
+                            st.code(msg, language=None)
+                            # Diagnóstico automático por código de error
+                            if code == "incorrect_password":
+                                st.warning("🔑 La contraseña es incorrecta para este usuario. Crea una **nueva** Application Password mientras estás logueado como `_adriaguerrero` y actualiza WP_APP_PASSWORD_SITE1 en Railway Variables.")
+                            elif code == "invalid_username":
+                                st.warning(f"👤 El usuario `{_wp_user_now}` no existe. Actualiza WP_USERNAME_SITE1 con el nombre de usuario exacto de tu WordPress.")
+                            elif "rest_not_logged_in" in str(code) or r.status_code == 401:
+                                st.info("⚡ Error 401 genérico — el servidor puede estar bloqueando el header Authorization. Ver guía PHP abajo.")
+                            elif r.status_code == 403:
+                                st.info("⚡ Error 403 — el servidor bloquea la autenticación. Ver guía PHP abajo.")
                     except Exception as ex:
                         st.error(str(ex))
         else:
@@ -1309,6 +1322,38 @@ Estos son los valores que debes añadir en **Railway → tu servicio → Variabl
         st.caption("Estado actual de WP en entorno:")
         st.markdown(f"Usuario: {'`' + _wp_user_now + '`' if _wp_user_now else '**❌ no configurado**'}")
         st.markdown(f"Password: {'✅ presente (' + str(len(_wp_pass_now)) + ' chars)' if _wp_pass_now else '**❌ no configurada**'}")
+
+    st.markdown("---")
+    with st.expander("🔧 ¿Error 401/403? — Solución: snippet PHP para WordPress (hosting compartido)"):
+        st.markdown("""
+**El problema**: tu servidor (Apache/cPanel/Hostinger) borra el header `Authorization` antes de que llegue a WordPress. WordPress nunca ve la contraseña, aunque sea correcta.
+
+**La solución**: añade este snippet PHP a WordPress.
+
+### Opción A — Plugin "Code Snippets" (recomendado, más seguro)
+1. WordPress Admin → **Plugins** → Añadir nuevo → buscar **"Code Snippets"** → Instalar → Activar
+2. Code Snippets → Añadir nuevo → pega el código de abajo → Activar
+
+### Opción B — functions.php (solo si sabes lo que haces)
+WordPress Admin → Apariencia → Editor de archivos de tema → `functions.php` → añade al final
+
+```php
+// EXPERTOSEO — Fix Basic Auth en Apache (Application Passwords)
+add_filter('determine_current_user', function($user_id) {
+    if (!empty($user_id)) return $user_id;
+    $auth = $_SERVER['HTTP_AUTHORIZATION']
+         ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+         ?? (function_exists('apache_request_headers') ? (apache_request_headers()['Authorization'] ?? '') : '');
+    if (!$auth || !str_starts_with($auth, 'Basic ')) return $user_id;
+    [$user, $pass] = explode(':', base64_decode(substr($auth, 6)), 2);
+    $wp_user = wp_authenticate_application_password(null, trim($user), trim($pass));
+    if (!is_wp_error($wp_user)) return $wp_user->ID;
+    return $user_id;
+}, 20);
+```
+
+Después de añadirlo, **pulsa "🔌 Probar ahora"** de nuevo.
+""")
 
 # ── Las páginas no activas (Checklist, Estado APIs) siguen en el código pero
 #    no están en el nav — se eliminan del menú para simplificar la interfaz.
