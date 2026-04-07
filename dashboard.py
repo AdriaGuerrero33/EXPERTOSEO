@@ -702,6 +702,14 @@ add_action('rest_api_init', function() {
             _pre_pass  = _pub_os.environ.get("WP_APP_PASSWORD_SITE1", "")
             _wp_ok = False
             _wp_err = ""
+            _wp_rest_public_ok = False
+            try:
+                # Primero test público (sin auth) para saber si REST API está habilitado
+                _pub_resp = _pre_req.get(f"{_pre_url}/wp-json/", timeout=8)
+                _wp_rest_public_ok = _pub_resp.status_code == 200
+            except Exception:
+                _wp_rest_public_ok = False
+
             try:
                 _pre_headers = {"X-Expertoseo-Token": _pre_token} if _pre_token else {}
                 _pre_auth    = (_pre_user, _pre_pass) if (not _pre_token and _pre_user and _pre_pass) else None
@@ -721,7 +729,28 @@ add_action('rest_api_init', function() {
 
             if not _wp_ok:
                 st.error(f"❌ WordPress no accesible — el pipeline no puede publicar.\n\n**Error:** {_wp_err}")
-                st.warning("Comprueba que el snippet PHP de auth está activo en Code Snippets y que `EXPERTOSEO_SECRET_TOKEN` está en Railway Variables.")
+                if not _wp_rest_public_ok:
+                    st.error("""🚫 **El REST API de WordPress está bloqueado a nivel de nginx/hosting.**
+La request no llega a WordPress — tu hosting o un WAF (Cloudflare, Wordfence, etc.) bloquea `/wp-json/`.
+
+**Soluciones según hosting:**
+- **Wordfence**: Seguridad → Firewall → desactiva "Block REST API access to users who are not logged in"
+- **iThemes Security**: Settings → WordPress Tweaks → desactiva "Disable REST API"
+- **Cloudflare**: Security → WAF → revisa reglas que bloqueen `/wp-json/`
+- **Hosting (cPanel/Plesk)**: busca "REST API" o "ModSecurity" en configuración
+- **Prueba manual**: abre `{_pre_url}/wp-json/` en el navegador — si da 403, confirmas que es el hosting""".format(_pre_url=_pre_url))
+                elif "403" in _wp_err:
+                    st.warning("""🔑 **REST API accesible pero rechaza la autenticación (403).**
+El snippet PHP recibe la request pero rechaza el token.
+
+**Causas más comunes:**
+1. El token en el snippet PHP no coincide con `EXPERTOSEO_SECRET_TOKEN` en Railway
+2. El snippet PHP tiene `getenv('EXPERTOSEO_SECRET_TOKEN')` en vez del token hardcodeado — reemplázalo
+3. Ve a **Ajustes → Credenciales → Conexión WordPress** para ver el snippet correcto actualizado""")
+                elif "401" in _wp_err or "not_logged_in" in _wp_err.lower():
+                    st.warning("🔑 **Token no reconocido** — el snippet PHP está activo pero el token no coincide. Asegúrate de que el valor en el snippet PHP es exactamente el mismo que `EXPERTOSEO_SECRET_TOKEN` en Railway Variables.")
+                else:
+                    st.warning("Comprueba que el snippet PHP de auth está activo en Code Snippets y que `EXPERTOSEO_SECRET_TOKEN` está en Railway Variables.")
                 st.stop()
 
             log_q: queue.Queue = queue.Queue()
