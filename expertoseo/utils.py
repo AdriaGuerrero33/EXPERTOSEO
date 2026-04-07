@@ -121,11 +121,15 @@ def get_site_config(config: dict, slug: str | None = None) -> dict:
     return sites[0]
 
 
+# Archivos JSON que contienen listas (no dicts)
+_LIST_JSON_FILES = {"published.json", "keywords.json", "schedule_plan.json"}
+
+
 def load_json(filename: str) -> dict | list:
     """Carga un archivo JSON de data/."""
     path = DATA_DIR / filename
     if not path.exists():
-        return {} if filename.endswith(".json") else []
+        return [] if filename in _LIST_JSON_FILES else {}
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 

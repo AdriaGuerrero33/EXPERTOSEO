@@ -18,39 +18,87 @@ from .article_generator import ArticleData
 from .utils import load_config, get_site_config, logger
 
 
+def _section(uid_fn, widgets: list, bg_color: str = "", padding: tuple = ("2", "0", "2", "0")) -> dict:
+    """Helper para crear una sección Elementor de una columna."""
+    settings: dict = {
+        "gap": "no",
+        "content_width": {"unit": "px", "size": 960, "sizes": {}},
+        "padding": {"unit": "em", "top": padding[0], "right": padding[1], "bottom": padding[2], "left": padding[3], "isLinked": False},
+    }
+    if bg_color:
+        settings["background_background"] = "classic"
+        settings["background_color"] = bg_color
+    return {
+        "id": uid_fn(), "elType": "section",
+        "settings": settings, "isInner": False,
+        "elements": [{"id": uid_fn(), "elType": "column", "settings": {"_column_size": 100}, "elements": widgets}],
+    }
+
+
+def _text_widget(uid_fn, html: str, align: str = "left") -> dict:
+    return {"id": uid_fn(), "elType": "widget", "widgetType": "text-editor",
+            "settings": {"editor": html, "align": align}, "elements": []}
+
+
+def _heading_widget(uid_fn, title: str, tag: str = "h2", color: str = "") -> dict:
+    s: dict = {"title": title, "header_size": tag}
+    if color:
+        s["title_color"] = color
+    return {"id": uid_fn(), "elType": "widget", "widgetType": "heading", "settings": s, "elements": []}
+
+
+def _divider_widget(uid_fn) -> dict:
+    return {"id": uid_fn(), "elType": "widget", "widgetType": "divider",
+            "settings": {"color": "#e0e0e0", "gap": {"unit": "px", "size": 15, "sizes": {}}}, "elements": []}
+
+
 def _build_elementor_data(article_html: str, intro_html: str = "", faq_items: list | None = None) -> str:
     """
     Genera el JSON de Elementor Page Builder para un artículo.
-    Crea un layout limpio y estructurado que se integra con cualquier tema de Elementor.
+    Layout rico con secciones: intro destacada → contenido → FAQ (si hay) → separador final.
+    Requiere que los meta fields _elementor_data/_elementor_edit_mode estén registrados
+    con show_in_rest=true en WordPress (usar el snippet PHP de EXPERTOSEO).
     """
     def uid() -> str:
         return uuid.uuid4().hex[:8]
 
-    # Sección principal: contenido del artículo
-    content_widget = {
-        "id": uid(), "elType": "widget", "widgetType": "text-editor",
-        "settings": {"editor": article_html, "align": "left"},
-        "elements": [],
-    }
+    import re as _re
 
-    main_section = {
-        "id": uid(), "elType": "section",
-        "settings": {
-            "gap": "no",
-            "content_width": {"unit": "px", "size": 960, "sizes": {}},
-            "padding": {"unit": "em", "top": "1", "right": "0", "bottom": "1", "left": "0", "isLinked": False},
-        },
-        "isInner": False,
-        "elements": [
-            {
-                "id": uid(), "elType": "column",
-                "settings": {"_column_size": 100, "_inline_size": None},
-                "elements": [content_widget],
-            }
-        ],
-    }
+    sections = []
 
-    return _json.dumps([main_section], ensure_ascii=False)
+    # ── 1. Sección intro (fondo gris muy claro) ───────────────────────────
+    # Extraer primer párrafo del HTML para usarlo como intro destacada
+    first_p_match = _re.search(r"<p[^>]*>(.*?)</p>", article_html, _re.DOTALL | _re.IGNORECASE)
+    if first_p_match:
+        intro_text = first_p_match.group(0)
+        intro_box = (
+            f'<div style="background:#f8f9fa;border-left:4px solid #2271b1;'
+            f'padding:18px 22px;border-radius:0 8px 8px 0;font-size:1.05em;'
+            f'line-height:1.7;color:#333">{first_p_match.group(1)}</div>'
+        )
+        sections.append(_section(uid, [_text_widget(uid, intro_box)], padding=("1", "0", "1", "0")))
+        sections.append(_section(uid, [_divider_widget(uid)], padding=("0", "0", "0", "0")))
+
+    # ── 2. Sección contenido principal ────────────────────────────────────
+    sections.append(_section(uid, [_text_widget(uid, article_html)], padding=("2", "0", "2", "0")))
+
+    # ── 3. Sección FAQ (si hay items, fondo azul muy claro) ───────────────
+    if faq_items:
+        faq_html_parts = ['<div style="background:#f0f7ff;border-radius:12px;padding:24px 28px;margin-top:8px">',
+                          '<h2 style="color:#1e3a5f;margin-bottom:16px">❓ Preguntas Frecuentes</h2>']
+        for item in faq_items[:8]:
+            q = item.get("question", "") if isinstance(item, dict) else str(item)
+            a = item.get("answer", "") if isinstance(item, dict) else ""
+            if q:
+                faq_html_parts.append(
+                    f'<details style="margin-bottom:12px;border:1px solid #cde;border-radius:8px;overflow:hidden">'
+                    f'<summary style="padding:12px 16px;background:#e8f3ff;cursor:pointer;font-weight:600;color:#1e3a5f">{q}</summary>'
+                    f'<div style="padding:12px 16px;color:#444;line-height:1.6">{a}</div></details>'
+                )
+        faq_html_parts.append('</div>')
+        sections.append(_section(uid, [_text_widget(uid, "".join(faq_html_parts))], padding=("1", "0", "2", "0")))
+
+    return _json.dumps(sections, ensure_ascii=False)
 
 
 class WordPressPublisher:
@@ -262,10 +310,29 @@ class WordPressPublisher:
             json=post_data,
             timeout=30,
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            try:
+                err_body = resp.json()
+                err_msg = f"HTTP {resp.status_code} — {err_body.get('code','?')}: {err_body.get('message','')}"
+            except Exception:
+                err_msg = f"HTTP {resp.status_code} — {resp.text[:400]}"
+            logger.error(f"Error publicando en WordPress: {err_msg}")
+            raise ValueError(err_msg)
         post = resp.json()
 
-        logger.info(f"Publicado correctamente: {post.get('link')}")
+        logger.info(f"Post creado (ID={post['id']}): {post.get('link')}")
+
+        # Verificar si Elementor meta se guardó (puede fallar silenciosamente si no está registrado)
+        saved_meta = post.get("meta", {})
+        if not saved_meta.get("_elementor_edit_mode"):
+            logger.warning(
+                "⚠️  _elementor_edit_mode NO se guardó en el post. "
+                "Instala el snippet PHP de EXPERTOSEO en Code Snippets → 'Registrar Elementor REST API'. "
+                "El artículo se publicó igualmente con HTML correcto en post_content."
+            )
+        else:
+            logger.info("✅ Elementor builder activado en el post")
+
         return {
             "id": post["id"],
             "link": post["link"],

@@ -155,6 +155,17 @@ def _start_scheduler():
 if _BOOT_OK and "scheduler_started" not in st.session_state:
     _start_scheduler()
 
+# ── Auto-inicializar schedule_plan.json si no existe ──────────────────────
+if _BOOT_OK and "schedule_initialized" not in st.session_state:
+    st.session_state["schedule_initialized"] = True
+    try:
+        _sp = DATA_DIR / "schedule_plan.json"
+        if not _sp.exists():
+            from expertoseo.scheduler import generate_auto_schedule
+            generate_auto_schedule(n_articles=15)
+    except Exception:
+        pass  # no bloquear el arranque si falla
+
 
 # ─────────────────────────────────────────────
 # Helpers
@@ -228,10 +239,25 @@ with st.sidebar:
         label_visibility="collapsed",
     )
 
-    # Aviso de volumen: si data/credentials.yaml no existe, los datos no persisten
-    _creds_yaml = DATA_DIR / "credentials.yaml"
-    if not _creds_yaml.exists():
-        st.warning("⚠️ Sin persistencia — Ve a Railway → tu servicio → **Volumes** → montar `/app/data` para que los datos no se borren al redesplegar.", icon="⚠️")
+    # ── Aviso de persistencia ────────────────────────────────────────────
+    _volume_mounted = DATA_DIR.exists() and any(DATA_DIR.iterdir()) if DATA_DIR.exists() else False
+    if not _volume_mounted:
+        st.markdown("""
+<div style="background:rgba(255,159,10,.12);border:1px solid #ff9f0a;border-radius:10px;padding:12px 14px;margin-bottom:8px">
+<b style="color:#ff9f0a">⚠️ Sin memoria persistente</b><br>
+<span style="font-size:.82rem;color:rgba(255,255,255,.7)">Los datos se borran al redesplegar.<br>
+<b>Solución (1 min):</b><br>
+1. Railway → tu servicio → <b>Volumes</b><br>
+2. <b>Add Volume</b> → Mount path: <code>/app/data</code><br>
+3. Redespliega → listo ✅</span>
+</div>
+""", unsafe_allow_html=True)
+    else:
+        st.markdown(
+            '<div style="background:rgba(48,209,88,.1);border:1px solid rgba(48,209,88,.3);'
+            'border-radius:8px;padding:8px 12px;font-size:.78rem;color:#30d158">✅ Memoria persistente activa</div>',
+            unsafe_allow_html=True,
+        )
     st.markdown("---")
 
     if not _BOOT_OK:
@@ -637,11 +663,65 @@ elif page == "🚀 Publicar":
         st.markdown("---")
 
         auto_launch = st.session_state.pop("auto_launch", False)
+
+        # ── Aviso snippet Elementor ───────────────────────────────────────
+        import os as _pub_os
+        _wp_token_pub = _pub_os.environ.get("EXPERTOSEO_SECRET_TOKEN", "")
+        with st.expander("⚡ Requisito: snippet PHP para Elementor (leer si los posts quedan sin formato)", expanded=False):
+            _elem_token = _wp_token_pub or "expertoseo-secret-2025-xk9mP"
+            st.markdown("Para que los posts se publiquen con Elementor builder activo, necesitas **2 snippets PHP** en WordPress → Code Snippets:")
+            st.markdown("**Snippet 1** (auth — ya lo tienes): el que tiene `X-Expertoseo-Token`")
+            st.markdown("**Snippet 2** (Elementor REST — añadir si no lo tienes):")
+            st.code("""<?php
+// EXPERTOSEO — Registrar meta fields de Elementor para REST API
+add_action('rest_api_init', function() {
+    foreach (['_elementor_data', '_elementor_edit_mode', '_elementor_version'] as $key) {
+        register_post_meta('post', $key, [
+            'show_in_rest'  => true,
+            'single'        => true,
+            'type'          => 'string',
+            'auth_callback' => function() { return current_user_can('edit_posts'); },
+        ]);
+    }
+});""", language="php")
+            st.caption("Sin este snippet el artículo se publica igualmente, pero el builder de Elementor no se activa automáticamente.")
+
+        st.markdown("---")
         launch = st.button("⚡ LANZAR AGENTE", type="primary", use_container_width=True) or auto_launch
 
         if launch:
             if not sites:
                 st.error("No hay sitios configurados. Ve a **Configuración** y añade tu sitio WordPress.")
+                st.stop()
+
+            # ── Test rápido de conexión WP antes de empezar ───────────────
+            import requests as _pre_req
+            _pre_url = sites[0].get("url", "").rstrip("/")
+            _pre_token = _pub_os.environ.get("EXPERTOSEO_SECRET_TOKEN", "")
+            _pre_user  = _pub_os.environ.get("WP_USERNAME_SITE1", "")
+            _pre_pass  = _pub_os.environ.get("WP_APP_PASSWORD_SITE1", "")
+            _wp_ok = False
+            _wp_err = ""
+            try:
+                _pre_headers = {"X-Expertoseo-Token": _pre_token} if _pre_token else {}
+                _pre_auth    = (_pre_user, _pre_pass) if (not _pre_token and _pre_user and _pre_pass) else None
+                _pre_resp    = _pre_req.get(f"{_pre_url}/wp-json/wp/v2/users/me",
+                                            headers=_pre_headers, auth=_pre_auth, timeout=8)
+                if _pre_resp.status_code == 200:
+                    _wp_ok = True
+                    st.success(f"✅ WordPress conectado como **{_pre_resp.json().get('name','?')}** — iniciando pipeline...")
+                else:
+                    try:
+                        _pre_body = _pre_resp.json()
+                        _wp_err = f"HTTP {_pre_resp.status_code} — {_pre_body.get('code','?')}: {_pre_body.get('message','')[:200]}"
+                    except Exception:
+                        _wp_err = f"HTTP {_pre_resp.status_code} — {_pre_resp.text[:300]}"
+            except Exception as _pre_ex:
+                _wp_err = str(_pre_ex)
+
+            if not _wp_ok:
+                st.error(f"❌ WordPress no accesible — el pipeline no puede publicar.\n\n**Error:** {_wp_err}")
+                st.warning("Comprueba que el snippet PHP de auth está activo en Code Snippets y que `EXPERTOSEO_SECRET_TOKEN` está en Railway Variables.")
                 st.stop()
 
             log_q: queue.Queue = queue.Queue()
@@ -751,8 +831,20 @@ elif page == "🚀 Publicar":
                         st.image(str(_img_path), caption="Portada publicada", use_container_width=True)
             else:
                 status_text.empty()
-                err = result.get("error", "Error desconocido") if result else "Sin respuesta"
-                st.error(f"❌ Error durante la publicación: {err}")
+                err = result.get("error", "Error desconocido") if result else "Sin respuesta del pipeline (timeout o crash)"
+                st.error(f"❌ Error: {err}")
+                # Diagnóstico automático
+                err_lower = err.lower()
+                if "401" in err or "403" in err or "not_logged_in" in err_lower or "authentication" in err_lower:
+                    st.warning("🔑 **Problema de autenticación WordPress** — comprueba que el snippet PHP de auth está activo y que EXPERTOSEO_SECRET_TOKEN coincide en Railway Variables y en el snippet.")
+                elif "anthropic" in err_lower or "api_key" in err_lower or "claude" in err_lower:
+                    st.warning("🤖 **Problema con la API de Claude** — verifica que ANTHROPIC_API_KEY está configurada en Railway Variables.")
+                elif "keyword" in err_lower or "cola" in err_lower:
+                    st.warning("🔑 **Sin keywords** — añade keywords en la página Keywords o introduce una en el campo de arriba.")
+                elif "timeout" in err_lower:
+                    st.warning("⏱️ **Timeout** — el pipeline tardó demasiado. Puede ser un problema de red con WordPress o que la API de Claude está lenta.")
+                with st.expander("📋 Log completo del pipeline"):
+                    st.code("\n".join(logs) if logs else "(sin logs capturados)", language=None)
 
     # ─── TAB 2: CALENDARIO ────────────────────────────────────────────────────
     with _pub_tab2:
